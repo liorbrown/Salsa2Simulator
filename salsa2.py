@@ -7,6 +7,11 @@ import requests
 import re
 from pynput import keyboard
 from MyConfig import MyConfig
+
+PROXIES = {
+        "http": MyConfig.http_proxy,
+        "https": MyConfig.https_proxy,
+    }
     
 def show_runs(cursor):
     """
@@ -231,15 +236,14 @@ def exectue_req(cursor, url, run_id):
     Returns:
         tuple: The cache name and its access cost.
     """
-    PROXIES = {
-        "http": MyConfig.http_proxy,
-        "https": MyConfig.http_proxy,
-    }
+    
 
     try:
         response = requests.get(url, proxies=PROXIES,timeout=10)
         if response.status_code != 200:
             print(f"Request {url} error - {response.status_code}")
+            cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
+            cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
             return 0
         else:
 
@@ -256,6 +260,9 @@ def exectue_req(cursor, url, run_id):
             return (row[2], row[3])
     except Exception as e:
         print(f"Request {url} error - {e}")
+        cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
+        cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
+        
         return 0
     
 def delete_cache(remote_ip):
@@ -312,7 +319,11 @@ def clear_caches(cursor):
 
     return not caches_num
 
-
+def is_squid_up():
+    url = "https://www.google.com"
+    response = requests.get(url, proxies=PROXIES,timeout=10)
+    
+    return response.status_code == 200
 def run_trace(conn, cursor):
     """
     Executes all requests for a specified trace 
@@ -323,6 +334,11 @@ def run_trace(conn, cursor):
         cursor (sqlite3.Cursor): The database cursor to execute SQL queries.
     """
 
+    # Check if squid works properly
+    if not is_squid_up():
+        print("Squid proxy not available")
+        return
+    
     stop_loop = [False]  # Use a mutable object to modify within listener
 
     def on_press(key):
@@ -501,7 +517,7 @@ def update_cache(conn, cursor, cache_id):
 
     opp_code = 1
     while opp_code:
-        opp_code = int(input("""Witch field you want to change:
+        opp_code = int(input("""Which field you want to change:
 1: IP
 2: Name
 3: Access cost
