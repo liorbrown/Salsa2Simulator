@@ -4,6 +4,13 @@ from zoneinfo import ZoneInfo
 from MyConfig import MyConfig
 import random
 
+# Register adapter for datetime objects to store them as strings in SQLite
+def adapt_datetime(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+# Register the adapter for datetime
+sqlite3.register_adapter(datetime, adapt_datetime)
+
 print("################## Welcome to traces generator #####################")
 traces_name = input("Insert traces name: ")
 traces = int(input("Insert number of traces to create: "))
@@ -20,7 +27,7 @@ if entries > keys:
     exit
 
 for trace_index in range(traces):
-    cursor.execute("INSERT INTO Traces(Name, Last_Update) VALUES (?, current_timestamp)", 
+    cursor.execute("INSERT INTO Traces(Name) VALUES (?)", 
                    [traces_name + str(trace_index + 1)])
     cursor.execute("SELECT MAX(id) FROM Traces")
     trace_id = cursor.fetchone()[0]
@@ -31,6 +38,9 @@ for trace_index in range(traces):
         key_id = random.randint(start_id, start_id + entries)
         cursor.execute("""INSERT INTO Trace_Entry(URL, Trace_ID)                     
                           SELECT URL, ? FROM Keys WHERE id=?""",[trace_id ,key_id])
+
+    jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
+    cursor.execute("""UPDATE Traces SET Last_Update=? WHERE id=?""",[jerusalem_time, trace_id])
 
 conn.commit()
 
