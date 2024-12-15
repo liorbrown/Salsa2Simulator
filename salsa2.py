@@ -168,7 +168,13 @@ def show_requsts(cursor):
     print(table)
 
 def check_parent_hit():
+    """
+    Check which cache retrive last request
+    """
     def read_last_row(file_path):
+        """
+        Read last row from given file
+        """
         try:
             with open(file_path, "rb") as file:
                 file.seek(0, 2)  # Move to the end of the file
@@ -237,23 +243,30 @@ def exectue_req(cursor, url, run_id):
     Returns:
         tuple: The cache name and its access cost.
     """
-    
 
     try:
+        # Execute requsts to squid proxy
         response = requests.get(url, proxies=PROXIES,timeout=10)
+
+        # Check if request failed
         if response.status_code != 200:
             print(f"Request {url} error - {response.status_code}")
+
+            # Delete URL form traces entries and from Keys list
             cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
             cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
             return 0
         else:
 
+            # Get IP of parent cache that retrive the request
             cache_ip = check_parent_hit()
             
+            # Gets cache data from caches table
             cursor.execute("Select * from Caches WHERE IP=?", cache_ip)
             row = cursor.fetchone()
             cache_id = row[0]
 
+            # Insert request's data into requests table
             cursor.execute("""INSERT INTO Requests('URL','Cache_ID','Run_ID') 
                             VALUES (?,?,?)""",[url,cache_id,run_id])
 
@@ -261,18 +274,25 @@ def exectue_req(cursor, url, run_id):
             return (row[2], row[3])
     except Exception as e:
         print(f"Request {url} error - {e}")
+
+        # Delete URL form traces entries and from Keys list
         cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
         cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
         
         return 0
     
 def delete_cache(remote_ip):
+    """
+    Clear all cache data from the given remote cache IP
+    """
+
     # Create an SSH client instance
     ssh_client = paramiko.SSHClient()
     
     # Automatically add the host key if not already known
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     
+    # Get password to others caches useers
     password = os.getenv('SQUID_PASS')
 
     try:
@@ -286,12 +306,13 @@ def delete_cache(remote_ip):
         stdin, stdout, stderr = ssh_client.exec_command(command, get_pty=True)
         
         # Provide sudo password for the command (if needed)
-        stdin.write(MyConfig.password + '\n')
+        stdin.write(password + '\n')
         stdin.flush()
 
         # Wait for the command to complete
         exit_status = stdout.channel.recv_exit_status()
         
+        # If exit_status is 0, its say that operation succeed
         if not exit_status:
             return True
         else:
@@ -306,23 +327,40 @@ def delete_cache(remote_ip):
         ssh_client.close()
 
 def clear_caches(cursor):
+    """
+    Clear all caches before making new trace
+    """
+
+    # Gets caches count for know if success to clear all
     cursor.execute("SELECT COUNT(id) FROM Caches")
+
+    # The -1 is because the table contains also "miss" cache that is'nt realy a cache
     caches_num = cursor.fetchone()[0] - 1
 
+    # Gets all caches from caches table
     cursor.execute("SELECT * FROM Caches")
     caches = cursor.fetchall()
 
+    # Run on all caches
     for cache in caches:
         if cache[2] != 'miss':
+            # Try to clear this cache
             if delete_cache(cache[1]):
                 print(f"{cache[2]} cache directory deleted successfully.")
                 caches_num -= 1
+            
+            # If one cache clearing failed, its not continue to others
             else:
                 break 
 
+    # Return true only if secceed to clear all caches
     return not caches_num
 
 def is_squid_up():
+    """
+    Check if squid up by checking request to google site
+    """
+
     url = "https://www.google.com"
 
     try:
@@ -331,6 +369,7 @@ def is_squid_up():
         return response.status_code == 200
     except Exception:
         return False
+    
 def run_trace(conn, cursor):
     """
     Executes all requests for a specified trace 
@@ -377,6 +416,7 @@ def run_trace(conn, cursor):
     limit = int(input("Insert limit of requests to execute, or 0 to not limit: "))
     jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
+    # Try to clear all caches before running trace
     if clear_caches(cursor):
         
         print("All caches cleared successfully")
@@ -627,4 +667,3 @@ while opp_code:
 
 conn.close()
 print("ByeBye")
-
