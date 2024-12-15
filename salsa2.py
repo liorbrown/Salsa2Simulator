@@ -7,6 +7,7 @@ import requests
 import re
 from pynput import keyboard
 from MyConfig import MyConfig
+import os
 
 PROXIES = {
         "http": MyConfig.http_proxy,
@@ -272,9 +273,11 @@ def delete_cache(remote_ip):
     # Automatically add the host key if not already known
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     
+    password = os.getenv('SQUID_PASS')
+
     try:
         # Connect to the remote machine
-        ssh_client.connect(remote_ip, username=MyConfig.user, password=MyConfig.password)
+        ssh_client.connect(remote_ip, username=MyConfig.user, password=password)
 
         # Command to delete the Squid cache directory
         command = f"sudo find {MyConfig.cache_dir} -type f ! -name 'swap.state' -delete"
@@ -321,9 +324,13 @@ def clear_caches(cursor):
 
 def is_squid_up():
     url = "https://www.google.com"
-    response = requests.get(url, proxies=PROXIES,timeout=10)
+
+    try:
+        response = requests.get(url, proxies=PROXIES,timeout=10)
     
-    return response.status_code == 200
+        return response.status_code == 200
+    except Exception:
+        return False
 def run_trace(conn, cursor):
     """
     Executes all requests for a specified trace 
