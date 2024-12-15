@@ -76,12 +76,13 @@ def show_keys(cursor, trace_id):
         trace_id (int): The ID of the trace to fetch URLs for.
     """
     group_by = input("Group by URLs? (y/n)")
-    if group_by.upper() == 'y'.upper():
+    if group_by.upper() == 'Y':
         # Fetch all URLs from keys table, that belong to trace_id 
         cursor.execute("""SELECT URL, COUNT(id) count
                         FROM Trace_Entry 
                         WHERE Trace_ID = ?
-                        GROUP BY URL""",[trace_id])
+                        GROUP BY URL
+                        ORDER BY COUNT(id) DESC""",[trace_id])
     else:
         # Fetch all URLs from keys table, that belong to trace_id 
         cursor.execute("""SELECT URL
