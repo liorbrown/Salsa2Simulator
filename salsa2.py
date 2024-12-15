@@ -552,7 +552,7 @@ def new_cache(conn, cursor):
         # If insertion fails, print the exact error message from SQLite
         print(f"Insertion failed: {e}")
     
-def update_cache(conn, cursor, cache_id):
+def update_cache(conn, cursor):
     """
     Updates the specified fields of a cache entry in the 'Caches' table.
     
@@ -561,6 +561,7 @@ def update_cache(conn, cursor, cache_id):
         cursor (sqlite3.Cursor): The database cursor to execute SQL queries.
         cache_id (int): The ID of the cache to update.
     """
+    cache_id = int(input("Choose cache ID to update: "))
 
     opp_code = 1
     while opp_code:
@@ -598,6 +599,20 @@ def update_cache(conn, cursor, cache_id):
             # If insertion fails, print the exact error message from SQLite
             print(f"Update failed: {e}")
 
+def delete_cache(conn, cursor):
+    """
+    Delete cache form caches table
+    """
+
+    cache_id = int(input("Choose cache id to delete: "))
+    verify = input(f"Are you sure you want to delete cache number {cache_id} (y/n)? ")
+
+    if verify.upper() == "Y":
+        cursor.execute("DELETE FROM Caches WHERE id=?", [cache_id])
+        conn.commit()
+
+        print("Cache deleted successfully!")
+
 def manage_caches(conn, cursor):
     """
     Provides a menu-driven interface to manage cache entries in the database.    
@@ -613,6 +628,7 @@ def manage_caches(conn, cursor):
 1: Show caches
 2: Insert new cache
 3: Update cache data
+4: Delete cache
 0: Back to main menu
 """))    
         if opp_code == 1:
@@ -621,8 +637,12 @@ def manage_caches(conn, cursor):
             new_cache(conn, cursor)
         elif opp_code == 3:
             show_caches(cursor)
-            cache_id = int(input("Choose cache ID to update: "))
-            update_cache(conn, cursor, cache_id)
+            update_cache(conn, cursor)
+            show_caches(cursor)
+        elif opp_code == 4:
+            show_caches(cursor)
+            delete_cache(conn, cursor)
+            show_caches(cursor)
         elif opp_code != 0:
             # In case of invalid input
             print("Invalid option, please choose a valid number.")
