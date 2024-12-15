@@ -68,16 +68,24 @@ def show_keys(cursor, trace_id):
         cursor (sqlite3.Cursor): The database cursor to execute SQL queries.
         trace_id (int): The ID of the trace to fetch URLs for.
     """
-
-    # Fetch all URLs from keys table, that belong to trace_id 
-    cursor.execute("""SELECT URL 
-                      FROM Trace_Entry 
-                      WHERE Trace_ID = ?""",[trace_id])
+    group_by = input("Group by URLs? (y/n)")
+    if group_by.upper() == 'y'.upper():
+        # Fetch all URLs from keys table, that belong to trace_id 
+        cursor.execute("""SELECT URL, COUNT(id) count
+                        FROM Trace_Entry 
+                        WHERE Trace_ID = ?
+                        GROUP BY URL""",[trace_id])
+    else:
+        # Fetch all URLs from keys table, that belong to trace_id 
+        cursor.execute("""SELECT URL
+                        FROM Trace_Entry 
+                        WHERE Trace_ID = ?""",[trace_id])
     rows = cursor.fetchall()
-    
+    column_names = [description[0] for description in cursor.description]
+
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
-    table.field_names = ['URL']  # Set column headers
+    table.field_names = column_names  # Set column headers
     
     for row in rows:
         table.add_row(row)
