@@ -1,3 +1,4 @@
+import paramiko
 from datetime import datetime
 import sqlite3
 from zoneinfo import ZoneInfo
@@ -256,6 +257,61 @@ def exectue_req(cursor, url, run_id):
     except Exception as e:
         print(f"Request {url} error - {e}")
         return 0
+    
+def delete_cache(remote_ip):
+    # Create an SSH client instance
+    ssh_client = paramiko.SSHClient()
+    
+    # Automatically add the host key if not already known
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    
+    try:
+        # Connect to the remote machine
+        ssh_client.connect(remote_ip, username=MyConfig.user, password=MyConfig.password)
+
+        # Command to delete the Squid cache directory
+        command = f"sudo find {MyConfig.cache_dir} -type f ! -name 'swap.state' -delete"
+
+        # Execute the command to delete the directory
+        stdin, stdout, stderr = ssh_client.exec_command(command, get_pty=True)
+        
+        # Provide sudo password for the command (if needed)
+        stdin.write(MyConfig.password + '\n')
+        stdin.flush()
+
+        # Wait for the command to complete
+        exit_status = stdout.channel.recv_exit_status()
+        
+        if not exit_status:
+            return True
+        else:
+            print(f"Error deleting {remote_ip} cache: {stderr.read().decode()}")
+            return False
+    
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+    finally:
+        # Close the SSH connection
+        ssh_client.close()
+
+def clear_caches(cursor):
+    cursor.execute("SELECT COUNT(id) FROM Caches")
+    caches_num = cursor.fetchone()[0] - 1
+
+    cursor.execute("SELECT * FROM Caches")
+    caches = cursor.fetchall()
+
+    for cache in caches:
+        if cache[2] != 'miss':
+            if delete_cache(cache[1]):
+                print(f"{cache[2]} cache directory deleted successfully.")
+                caches_num -= 1
+            else:
+                break 
+
+    return not caches_num
+
 
 def run_trace(conn, cursor):
     """
@@ -296,90 +352,95 @@ def run_trace(conn, cursor):
 
     trace_id = int(input("Choose trace ID: "))
     limit = int(input("Insert limit of requests to execute, or 0 to not limit: "))
+    jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
+
+    if clear_caches(cursor):
+        
+        print("All caches cleared successfully")
     
-    try:
-        jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
-        
-        # Create entry for the run, for generate and gets run id 
-        # for insert in requests entries.
-        # init End_time and total cost with dummies because they can't accept nulls
-        cursor.execute("""INSERT INTO Runs('Name','Start_Time','End_time','Trace_ID', 'Total_Cost')
-                          VALUES(?,?,?,?,0)""", [name,jerusalem_time,jerusalem_time,trace_id])
-        
-        # Get current run id
-        cursor.execute("SELECT MAX(id) from Runs")
-        row = cursor.fetchone()
-        run_id = row[0] 
+        try:    
+            # Create entry for the run, for generate and gets run id 
+            # for insert in requests entries.
+            # init End_time and total cost with dummies because they can't accept nulls
+            cursor.execute("""INSERT INTO Runs('Name','Start_Time','End_time','Trace_ID', 'Total_Cost')
+                            VALUES(?,?,?,?,0)""", [name,jerusalem_time,jerusalem_time,trace_id])
+            
+            # Get current run id
+            cursor.execute("SELECT MAX(id) from Runs")
+            row = cursor.fetchone()
+            run_id = row[0] 
 
-        # Get all trace's URLs
-        cursor.execute("SELECT URL FROM Trace_Entry WHERE Trace_ID = ?", [trace_id])
-        rows = cursor.fetchall()
+            # Get all trace's URLs
+            cursor.execute("SELECT URL FROM Trace_Entry WHERE Trace_ID = ?", [trace_id])
+            rows = cursor.fetchall()
 
-        opp_code = 1
+            opp_code = 1
 
-        # Start the keyboard listener
-        listener = keyboard.Listener(on_press=on_press)
-        listener.start()
+            # Start the keyboard listener
+            listener = keyboard.Listener(on_press=on_press)
+            listener.start()
 
-        # Run on all trace URLs
-        for row in rows:
-            if stop_loop[0]:
-                
-                opp_code = int(input("""What to do with this run:
+            # Run on all trace URLs
+            for row in rows:
+                if stop_loop[0]:
+                    
+                    opp_code = int(input("""What to do with this run:
 1: Stop and save run
 2: Stop without saving
 3: Keep running
 """)[-1])
-                if opp_code == 1 or opp_code == 2:
-                    break
-                else:
-                   stop_loop[0] = False 
+                    if opp_code == 1 or opp_code == 2:
+                        break
+                    else:
+                        stop_loop[0] = False 
 
-            # If requests succeed and there is limit, 
-            # decrease limit and check if reach it
-            if exectue_req(cursor, row[0], run_id) and limit > 0:
-                limit -= 1
-                if limit == 0:
-                    break
-        
-        if opp_code != 2:
-
-            jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
-
-            # Update run entry with end time
-            cursor.execute("""UPDATE Runs
-            SET End_Time = ?
-            WHERE id = ?""",[jerusalem_time, run_id])
-
-            conn.commit()
-
-            print("Trace run successfully!")
+                # If requests succeed and there is limit, 
+                # decrease limit and check if reach it
+                if exectue_req(cursor, row[0], run_id) and limit > 0:
+                    limit -= 1
+                    if not limit:
+                        break
             
-            # Fetch current run from the "Runs" table, for show the result
-            cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
-                                     T.Name trace_name, COUNT(C.id) requests, 
-                                     SUM(C.Access_Cost) total_cost, AVG(C.Access_Cost) average_cost
-                              FROM Runs RUN, Requests REQ, Caches C, Traces T  
-                              WHERE REQ.Run_ID = RUN.id AND 
-                              C.id = REQ.Cache_id AND 
-                              RUN.Trace_ID = T.id AND 
-                              RUN.id = ?""",[run_id])
-            row = cursor.fetchone()
-            
-            column_names = [description[0] for description in cursor.description]
+            if opp_code != 2:
 
-            # Display the data in a table format using PrettyTable
-            table = PrettyTable()
-            table.field_names = column_names  # Set column headers
+                jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
-            # Add selected row  
-            table.add_row(row)
-            
-            print(table)
+                # Update run entry with end time
+                cursor.execute("""UPDATE Runs
+                SET End_Time = ?
+                WHERE id = ?""",[jerusalem_time, run_id])
 
-    except sqlite3.DatabaseError as e:
-        # If insertion fails, print the exact error message from SQLite
-        print(f"Trace failed: {e}")  
+                conn.commit()
+
+                print("Trace run successfully!")
+                
+                # Fetch current run from the "Runs" table, for show the result
+                cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
+                                        T.Name trace_name, COUNT(C.id) requests, 
+                                        SUM(C.Access_Cost) total_cost, AVG(C.Access_Cost) average_cost
+                                FROM Runs RUN, Requests REQ, Caches C, Traces T  
+                                WHERE REQ.Run_ID = RUN.id AND 
+                                C.id = REQ.Cache_id AND 
+                                RUN.Trace_ID = T.id AND 
+                                RUN.id = ?""",[run_id])
+                row = cursor.fetchone()
+                
+                column_names = [description[0] for description in cursor.description]
+
+                # Display the data in a table format using PrettyTable
+                table = PrettyTable()
+                table.field_names = column_names  # Set column headers
+
+                # Add selected row  
+                table.add_row(row)
+                
+                print(table)
+
+        except sqlite3.DatabaseError as e:
+            # If insertion fails, print the exact error message from SQLite
+            print(f"Trace failed: {e}")  
+    else:
+        print("Operation aborted!")
 
 def show_caches(cursor):
     """

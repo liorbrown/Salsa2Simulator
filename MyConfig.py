@@ -31,3 +31,6 @@ class MyConfig:
     log_file = get_config_value('log_file')
     http_proxy = get_config_value('http_proxy')
     https_proxy = get_config_value('https_proxy')
+    user=get_config_value('user')
+    password=get_config_value('password')
+    cache_dir=get_config_value('cache_dir')
