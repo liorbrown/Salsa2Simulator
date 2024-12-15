@@ -71,7 +71,7 @@ def show_keys(cursor, trace_id):
 
     # Fetch all URLs from keys table, that belong to trace_id 
     cursor.execute("""SELECT URL 
-                      FROM Keys 
+                      FROM Trace_Entry 
                       WHERE Trace_ID = ?""",[trace_id])
     rows = cursor.fetchall()
     
@@ -97,7 +97,7 @@ def show_traces(cursor):
     # Fetch all rows from the "Traces" table
     cursor.execute("""SELECT T.id ID, T.Name Name, 
                              COUNT(K.id) Keys, T.Last_Update Last_Update 
-                      FROM Traces T, Keys K
+                      FROM Traces T, Trace_Entry K
                       WHERE T.id = K.Trace_ID
                       GROUP BY T.id""")
     rows = cursor.fetchall()
@@ -240,13 +240,6 @@ def exectue_req(cursor, url, run_id):
             row = cursor.fetchone()
             cache_id = row[0]
 
-            """ # Get all caches and pick randomly one's ID
-            cursor.execute("Select * from Caches")
-            rows = cursor.fetchall()
-            row_num = random.randint(0, len(rows) - 1)
-            row = rows[row_num]
-            cache_id = row[0] """
-
             cursor.execute("""INSERT INTO Requests('URL','Cache_ID','Run_ID') 
                             VALUES (?,?,?)""",[url,cache_id,run_id])
 
@@ -311,7 +304,7 @@ def run_trace(conn, cursor):
         run_id = row[0] 
 
         # Get all trace's URLs
-        cursor.execute("SELECT URL FROM Keys WHERE Trace_ID = ?", [trace_id])
+        cursor.execute("SELECT URL FROM Trace_Entry WHERE Trace_ID = ?", [trace_id])
         rows = cursor.fetchall()
 
         opp_code = 1
