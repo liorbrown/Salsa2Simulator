@@ -269,7 +269,7 @@ def run_trace(conn, cursor):
     # Fetch all rows from the "Traces" table, with their keys count
     cursor.execute("""SELECT T.id ID, T.Name Name, 
                              COUNT(K.id) Keys, T.Last_Update Last_Update 
-                      FROM Traces T, Keys K
+                      FROM Traces T, Trace_Entry K
                       WHERE T.id = K.Trace_ID
                       GROUP BY T.id""")
     rows = cursor.fetchall()
