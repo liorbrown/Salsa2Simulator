@@ -5,53 +5,7 @@ from prettytable import PrettyTable
 import requests
 import re
 from pynput import keyboard
-
-
-def load_trace(conn, cursor):
-    path = input("Insert file path: ")
-    name = input("Insert trace name: ")
-    cursor.execute("INSERT INTO Traces(Name, Last_Update) VALUES (?, current_timestamp)", [name])
-    cursor.execute("SELECT MAX(id) FROM Traces")
-    id = cursor.fetchone()[0]
-
-    with open(path, 'r') as file:
-        for line in file:
-            row = line.split(',')
-            url = "https://www." + row[2]
-
-            cursor.execute("INSERT INTO Keys(URL, Trace_ID) VALUES (?,?)",[url, id])
-
-    jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
-    cursor.execute("""UPDATE Traces SET Last_Update=? WHERE id=?""",[jerusalem_time, id])
-    conn.commit()
-
-
-def get_config_value(key):
-    """
-    Retrieve the value associated with a key from a configuration file.
-
-    Args:
-        config_file (str): Path to the configuration file.
-        key (str): The key to search for.
-
-    Returns:
-        str: The value associated with the key, or None if the key is not found.
-    """
-    try:
-        config_file = 'salsa2.config'
-        with open(config_file, 'r') as file:
-            for line in file:
-                # Split the line into key and value
-                if '=' in line:
-                    k, v = line.split('=', 1)
-                    k = k.strip()  # Remove any extra whitespace
-                    v = v.strip().strip("'")  # Remove quotes and whitespace
-                    if k == key:
-                        return v
-        return None  # Return None if the key is not found
-    except Exception as e:
-        print(f"Error reading configuration file: {e}")
-        return None
+from MyConfig import MyConfig
     
 def show_runs(cursor):
     """
@@ -219,7 +173,7 @@ def check_parent_hit():
             return None
 
     # Read the last row
-    last_row = read_last_row(get_config_value('log_file'))
+    last_row = read_last_row(MyConfig.log_file)
     if last_row is None:
         return 0
 
@@ -269,8 +223,8 @@ def exectue_req(cursor, url, run_id):
         tuple: The cache name and its access cost.
     """
     PROXIES = {
-        "http": get_config_value('http_proxy'),
-        "https": get_config_value('https_proxy'),
+        "http": MyConfig.http_proxy,
+        "https": MyConfig.http_proxy,
     }
 
     try:
@@ -340,6 +294,7 @@ def run_trace(conn, cursor):
     print(table)
 
     trace_id = int(input("Choose trace ID: "))
+    limit = int(input("Insert limit of requests to execute, or 0 to not limit: "))
     
     try:
         jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
@@ -379,7 +334,12 @@ def run_trace(conn, cursor):
                 else:
                    stop_loop[0] = False 
 
-            exectue_req(cursor, row[0], run_id)
+            # If requests succeed and there is limit, 
+            # decrease limit and check if reach it
+            if exectue_req(cursor, row[0], run_id) and limit > 0:
+                limit -= 1
+                if limit == 0:
+                    break
         
         if opp_code != 2:
 
@@ -549,7 +509,7 @@ def adapt_datetime(dt):
 # Register the adapter for datetime
 sqlite3.register_adapter(datetime, adapt_datetime)
 
-conn = sqlite3.connect(get_config_value('db_file'))
+conn = sqlite3.connect(MyConfig.db_file)
 cursor = conn.cursor()
 
 print("################# Welcome to Salsa2 simulator ####################")
@@ -577,8 +537,6 @@ while opp_code:
         run_trace(conn, cursor)
     elif opp_code == 6:
         manage_caches(conn, cursor)
-    elif opp_code == 7:
-        load_trace(conn, cursor)
     elif opp_code != 0:
         print("Invalid option, please choose a valid number.")
 
