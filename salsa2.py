@@ -293,7 +293,7 @@ def delete_cache(remote_ip):
     # Automatically add the host key if not already known
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     
-    # Get password to others caches useers
+    # Get password to others caches users
     password = os.getenv('SQUID_PASS')
 
     try:
