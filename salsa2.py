@@ -282,7 +282,7 @@ def exectue_req(cursor, url, run_id):
         
         return 0
     
-def delete_cache(remote_ip):
+def clear_cache(remote_ip):
     """
     Clear all cache data from the given remote cache IP
     """
@@ -346,7 +346,7 @@ def clear_caches(cursor):
     for cache in caches:
         if cache[2] != 'miss':
             # Try to clear this cache
-            if delete_cache(cache[1]):
+            if clear_cache(cache[1]):
                 print(f"{cache[2]} cache directory deleted successfully.")
                 caches_num -= 1
             
