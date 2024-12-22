@@ -192,7 +192,8 @@ def check_parent_hit():
     # Read the last row
     last_row = read_last_row(MyConfig.log_file)
     if last_row is None:
-        return 0
+        print (f"Error reading log file: {MyConfig.log_file}")
+        return False
 
     # Check for "PARENT_HIT/{ip}" pattern
     match = re.search(r"PARENT_HIT/(\d{1,3}(?:\.\d{1,3}){3})", last_row)
@@ -243,7 +244,7 @@ def exectue_req(cursor, url, run_id):
             "http": MyConfig.http_proxy,
             "https": MyConfig.https_proxy,
         }
-        
+
     try:
         # Execute requsts to squid proxy
         response = requests.get(url, proxies=PROXIES,timeout=10)
@@ -261,17 +262,20 @@ def exectue_req(cursor, url, run_id):
             # Get IP of parent cache that retrive the request
             cache_ip = check_parent_hit()
             
-            # Gets cache data from caches table
-            cursor.execute("Select * from Caches WHERE IP=?", cache_ip)
-            row = cursor.fetchone()
-            cache_id = row[0]
+            if (cache_ip):
+                # Gets cache data from caches table
+                cursor.execute("Select * from Caches WHERE IP=?", cache_ip)
+                row = cursor.fetchone()
+                cache_id = row[0]
 
-            # Insert request's data into requests table
-            cursor.execute("""INSERT INTO Requests('URL','Cache_ID','Run_ID') 
-                            VALUES (?,?,?)""",[url,cache_id,run_id])
+                # Insert request's data into requests table
+                cursor.execute("""INSERT INTO Requests('URL','Cache_ID','Run_ID') 
+                                VALUES (?,?,?)""",[url,cache_id,run_id])
 
-            # Return cache name and cache access cost
-            return (row[2], row[3])
+                # Return cache name and cache access cost
+                return (row[2], row[3])
+            
+            return 0
     except Exception as e:
         print(f"Request {url} error - {e}")
 
