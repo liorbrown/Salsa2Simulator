@@ -33,3 +33,4 @@ class MyConfig:
     https_proxy = get_config_value('https_proxy')
     user=get_config_value('user')
     cache_dir=get_config_value('cache_dir')
+    squid_port=get_config_value('squid_port')
