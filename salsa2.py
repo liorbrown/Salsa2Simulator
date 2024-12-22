@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from prettytable import PrettyTable
 import requests
 import re
-from pynput import keyboard
+
 from MyConfig import MyConfig
 import os
     
@@ -412,8 +412,7 @@ def run_trace(conn, cursor):
     
         stop_loop = [False]  # Use a mutable object to modify within listener
 
-        def on_press(key):
-            stop_loop[0] = key == keyboard.Key.esc
+       
                 
         name = input("Insert run name: ")
         
@@ -464,9 +463,16 @@ def run_trace(conn, cursor):
 
                 opp_code = 1
 
-                # Start the keyboard listener
-                listener = keyboard.Listener(on_press=on_press)
-                listener.start()
+                try:
+                    from pynput import keyboard
+
+                    def on_press(key):
+                        stop_loop[0] = key == keyboard.Key.esc
+
+                    listener = keyboard.Listener(on_press=on_press)
+                    listener.start()
+                except Exception as e:
+                    print(f"Failed to start keyboard listener: {e}")
 
                 # Run on all trace URLs
                 for row in rows:
@@ -693,7 +699,7 @@ while opp_code:
 5: Run entire trace
 6: Manage caches
 0: Exit
-"""))
+""")[-1])
     if opp_code == 1:
         show_runs(cursor)
     elif opp_code == 2:
