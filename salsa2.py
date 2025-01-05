@@ -163,44 +163,49 @@ def show_requsts(cursor):
     
     print(table)
 
-def check_parent_hit():
-    """
-    Check which cache retrive last request
-    """
-    def read_last_row(file_path):
-        """
-        Read last row from given file
-        """
-        try:
-            with open(file_path, "rb") as file:
-                file.seek(0, 2)  # Move to the end of the file
-                position = file.tell()
-                buffer = bytearray()
+# def check_parent_hit():
+#     """
+#     Check which cache retrive last request
+#     """
+#     def read_last_row(file_path):
+#         """
+#         Read last row from given file
+#         """
+#         try:
+#             with open(file_path, "rb") as file:
+#                 file.seek(0, 2)  # Move to the end of the file
+#                 position = file.tell()
+#                 buffer = bytearray()
                 
-                while position >= 0:
-                    file.seek(position)
-                    char = file.read(1)
-                    if char == b'\n' and buffer:
-                        break
-                    buffer.extend(char)
-                    position -= 1
+#                 while position >= 0:
+#                     file.seek(position)
+#                     char = file.read(1)
+#                     if char == b'\n' and buffer:
+#                         break
+#                     buffer.extend(char)
+#                     position -= 1
                 
-                return buffer[::-1].decode("utf-8").strip()
-        except Exception as e:
-            return None
+#                 return buffer[::-1].decode("utf-8").strip()
+#         except Exception as e:
+#             return None
 
-    # Read the last row
-    last_row = read_last_row(MyConfig.log_file)
-    if last_row is None:
-        print (f"Error reading log file: {MyConfig.log_file}")
-        return False
+#     # Read the last row
+#     last_row = read_last_row(MyConfig.log_file)
+#     if last_row is None:
+#         print (f"Error reading log file: {MyConfig.log_file}")
+#         return False
 
-    # Check for "PARENT_HIT/{ip}" pattern
-    match = re.search(r"PARENT_HIT/(\d{1,3}(?:\.\d{1,3}){3})", last_row)
-    if match:
-        return match.group(1)  # Return the IP address
-    else:
-        return "0"
+#     # Check for "PARENT_HIT/{ip}" pattern
+#     match = re.search(r"PARENT_HIT/(\d{1,3}(?:\.\d{1,3}){3})", last_row)
+#     if match:
+#         return match.group(1)  # Return the IP address
+#     else:
+#         return "0"
+
+def check_parent_hit(status):
+    parts = status.split(';')
+
+    return "miss" if parts[1] != "hit" else parts[0]
 
 def exectue_single_req(conn, cursor):
     """
@@ -248,7 +253,6 @@ def exectue_req(cursor, url, run_id):
     try:
         # Execute requsts to squid proxy
         response = requests.get(url, proxies=PROXIES,timeout=10)
-
         # Check if request failed
         if (not response.ok):
             print(f"Request {url} error - {response.status_code}")
@@ -260,11 +264,11 @@ def exectue_req(cursor, url, run_id):
         else:
 
             # Get IP of parent cache that retrive the request
-            cache_ip = check_parent_hit()
+            cache = check_parent_hit(response.headers.get("Cache-Status"))
             
-            if (cache_ip):
+            if (cache):
                 # Gets cache data from caches table
-                cursor.execute("Select * from Caches WHERE IP=?", cache_ip)
+                cursor.execute("Select * from Caches WHERE NAME=?", [cache])
                 row = cursor.fetchone()
                 cache_id = row[0]
 
