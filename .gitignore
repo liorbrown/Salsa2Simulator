@@ -1,0 +1,6 @@
+# Ignore virtual environment
+venv/
+.vscode/
+__pycache__/
+testKeybord.py
+salsa2.db-journal
