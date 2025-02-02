@@ -1,3 +1,5 @@
+import urllib3
+import warnings
 import paramiko
 from datetime import datetime
 import sqlite3
@@ -252,7 +254,7 @@ def exectue_req(cursor, url, run_id):
 
     try:
         # Execute requsts to squid proxy
-        response = requests.get(url, proxies=PROXIES,timeout=10)
+        response = requests.get(url, proxies=PROXIES,timeout=10, verify=False)
         # Check if request failed
         if (not response.ok):
             print(f"Request {url} error - {response.status_code}")
@@ -376,7 +378,7 @@ def is_squid_up(cursor):
     URL = "https://www.google.com"
 
     try:
-        response = requests.get(URL, proxies=proxy,timeout=10)
+        response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
 
         # Check if proxy OK    
         if (response.ok):
@@ -385,7 +387,7 @@ def is_squid_up(cursor):
             for cache in caches:
                 proxy = {"https": f'http://{cache[0]}:{MyConfig.squid_port}'}
                 try:
-                    response = requests.get(URL, proxies=proxy,timeout=10)
+                    response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
 
                     if (not response.ok):
                         print(f"Server {cache[0]} error: request failed")
@@ -690,6 +692,8 @@ sqlite3.register_adapter(datetime, adapt_datetime)
 
 conn = sqlite3.connect(MyConfig.db_file)
 cursor = conn.cursor()
+
+warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
 print("################# Welcome to Salsa2 simulator ####################")
 
