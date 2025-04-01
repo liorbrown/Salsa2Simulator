@@ -4,3 +4,4 @@ venv/
 __pycache__/
 testKeybord.py
 salsa2.db-journal
+salsa2.db
