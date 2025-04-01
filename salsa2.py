@@ -375,7 +375,7 @@ def is_squid_up(cursor):
     caches = cursor.fetchall()    
     proxy = {"https": MyConfig.https_proxy}
 
-    URL = "https://www.google.com"
+    URL = "https://www.google.com" 
 
     try:
         response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
