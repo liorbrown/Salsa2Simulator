@@ -125,7 +125,7 @@ def show_traces(cursor):
     
 def show_requsts_details(requests):
     # Fetch column names for the table
-    column_names = ['Time', 'URL', 'Indicators', 'Accessed', 'Resolution', 'Hit?', 'Cost']
+    column_names = ['Time', 'URL', 'Indications', 'Accessed', 'Resolution', 'Hit?', 'Cost']
     
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
@@ -191,52 +191,7 @@ def show_requsts(cursor : sqlite3.Cursor):
 
     show_requsts_details(req_ids)
     
-
-# def check_parent_hit():
-#     """
-#     Check which cache retrive last request
-#     """
-#     def read_last_row(file_path):
-#         """
-#         Read last row from given file
-#         """
-#         try:
-#             with open(file_path, "rb") as file:
-#                 file.seek(0, 2)  # Move to the end of the file
-#                 position = file.tell()
-#                 buffer = bytearray()
-                
-#                 while position >= 0:
-#                     file.seek(position)
-#                     char = file.read(1)
-#                     if char == b'\n' and buffer:
-#                         break
-#                     buffer.extend(char)
-#                     position -= 1
-                
-#                 return buffer[::-1].decode("utf-8").strip()
-#         except Exception as e:
-#             return None
-
-#     # Read the last row
-#     last_row = read_last_row(MyConfig.log_file)
-#     if last_row is None:
-#         print (f"Error reading log file: {MyConfig.log_file}")
-#         return False
-
-#     # Check for "PARENT_HIT/{ip}" pattern
-#     match = re.search(r"PARENT_HIT/(\d{1,3}(?:\.\d{1,3}){3})", last_row)
-#     if match:
-#         return match.group(1)  # Return the IP address
-#     else:
-#         return "0"
-
-# def check_parent_hit(status):
-#     parts = status.split(';')
-
-#     return "miss" if parts[1] != "hit" else parts[0]
-
-def get_miss_cost(cursor):
+def get_miss_cost(cursor: sqlite3.Cursor):
 
     cursor.execute("""SELECT Access_Cost
                       FROM Caches
@@ -259,10 +214,12 @@ def exectue_single_req(conn, cursor):
 
     try:
         # Execute request without run id
-        reqID = exectue_req(cursor, url, 0)
+        reqResult = exectue_req(conn, cursor, url, 0)
+        conn = reqResult[0]
+        cursor = reqResult[1]
+        reqID = reqResult[2]
 
         if reqID:
-            conn.commit()
 
             cursor.execute("""SELECT Caches.Name, Caches.Access_Cost, CacheReq.resolution
                               FROM CacheReq, Caches
@@ -272,24 +229,26 @@ def exectue_single_req(conn, cursor):
             
             result = cursor.fetchone()
 
-            if (result[2]):
-                name = result[0]
-                cost = result[1]
-            else:
-                name = "miss"
-                cost = get_miss_cost(cursor)
+            if (result):
+                if (result[2]):
+                    name = result[0]
+                    cost = result[1]
+                else:
+                    name = "miss"
+                    cost = get_miss_cost(cursor)
 
-            print(f"""Requst Fetched successfully from {name} at cost of {cost}""")
+                print(f"""Requst Fetched successfully from {name} at cost of {cost}""")
 
     except sqlite3.DatabaseError as e:
         # If request fails, print the exact error message from SQLite
         print(f"Request failed: {e}")
 
+    finally:
+        return conn, cursor
 
-def exectue_req(cursor : sqlite3.Cursor, url : str, run_id : int):
+def exectue_req(conn : sqlite3.Connection, cursor: sqlite3.Cursor, url : str, run_id : int):
     """
-    Simulates the execution of a request by selecting a random cache 
-    and logging the request.
+    Execute request to squid 
     
     Args:
         cursor (sqlite3.Cursor): The database cursor to execute SQL queries.
@@ -305,8 +264,23 @@ def exectue_req(cursor : sqlite3.Cursor, url : str, run_id : int):
         }
 
     try:
+        jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
+
+        # Insert request's data into requests table
+        cursor.execute("""INSERT INTO Requests('Time', 'URL', 'Run_ID') 
+                        VALUES (?,?,?)""",[jerusalem_time, url,run_id])
+        
+        # Need to close connection before continuing because squid need to update DB
+        conn.commit()
+        conn.close()
+
         # Execute requsts to squid proxy
         response = requests.get(url, proxies=PROXIES,timeout=10, verify=False)
+
+        # Reopen DB        
+        conn = sqlite3.connect(MyConfig.db_file)
+        cursor = conn.cursor()
+
         # Check if request failed
         if (not response.ok):
             print(f"Request {url} error - {response.status_code}")
@@ -314,31 +288,17 @@ def exectue_req(cursor : sqlite3.Cursor, url : str, run_id : int):
             # Delete URL form traces entries and from Keys list
             cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
             cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
-            return 0
-        else:
-            jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
-            # Insert request's data into requests table
-            cursor.execute("""INSERT INTO Requests('Time', 'URL', 'Run_ID') 
-                            VALUES (?,?,?)""",[jerusalem_time, url,run_id])
+            conn.commit()
+            
+            return conn, cursor, 0
+        else:    
             
             cursor.execute("SELECT MAX(id) FROM Requests")
             reqID = cursor.fetchone()[0]
-            status = response.headers.get("Cache-Status").split(';')
-            hit = status[1] == "hit"
-
-            # Gets cache data from caches table
-            cursor.execute("Select * from Caches WHERE NAME=?", [status[0]])
-            row = cursor.fetchone()
-            cacheID = row[0]
-
-            # Insert request's data into requests table
-            cursor.execute("""INSERT INTO CacheReq
-                           ('req_id', 'cache_id', 'accessed', resolution) 
-                            VALUES (?,?,?,?)""",[reqID,cacheID, 1, hit])
 
             # Return reqID
-            return (reqID)
+            return (conn, cursor, reqID)
         
     except Exception as e:
         print(f"Request {url} error - {e}")
@@ -347,7 +307,7 @@ def exectue_req(cursor : sqlite3.Cursor, url : str, run_id : int):
         cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
         cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
         
-        return 0
+        return conn, cursor, 0
     
 def clear_cache(remote_ip):
     """
@@ -491,7 +451,7 @@ def get_cost(cursor : sqlite3.Cursor, run_id : int):
     return [total_cost, req_count]
 
     
-def run_trace(conn, cursor : sqlite3.Cursor):
+def run_trace(conn : sqlite3.Connection, cursor : sqlite3.Cursor):
     """
     Executes all requests for a specified trace 
     and logs the results into the 'Runs' table.
@@ -505,8 +465,6 @@ def run_trace(conn, cursor : sqlite3.Cursor):
     if is_squid_up(cursor):
     
         stop_loop = [False]  # Use a mutable object to modify within listener
-
-       
                 
         name = input("Insert run name: ")
         
@@ -570,27 +528,20 @@ def run_trace(conn, cursor : sqlite3.Cursor):
 
                 # Run on all trace URLs
                 for row in rows:
-#                     if stop_loop[0]:
-
-#                         # Take only last char from input for ignore "Esc" that came before
-#                         opp_code = int(input("""What to do with this run:
-# 1: Stop and save run
-# 2: Stop without saving
-# 3: Keep running
-# """)[-1])
-#                         if opp_code == 1 or opp_code == 2:
-#                             break
-#                         else:
-#                             stop_loop[0] = False 
-
                     # If requests succeed and there is limit, 
                     # decrease limit and check if reach it
-                    if exectue_req(cursor, row[0], run_id) and limit > 0:
+
+                    reqResult = exectue_req(conn, cursor, row[0], run_id)
+                    
+                    conn = reqResult[0]
+                    cursor = reqResult[1]
+                    req_id = reqResult[2]
+
+                    if req_id and limit > 0:
                         limit -= 1
+
                         if not limit:
-                            break
-                
-                # if opp_code != 2:
+                            break                
 
                 jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
@@ -628,6 +579,9 @@ def run_trace(conn, cursor : sqlite3.Cursor):
             except sqlite3.DatabaseError as e:
                 # If insertion fails, print the exact error message from SQLite
                 print(f"Trace failed: {e}")  
+            
+            finally:
+                return conn, cursor
 
 def show_caches(cursor):
     """
@@ -804,9 +758,15 @@ try:
         elif opp_code == 3:
             show_requsts(cursor)
         elif opp_code == 4:
-            exectue_single_req(conn, cursor)
+            reqResult = exectue_single_req(conn, cursor)
+
+            conn = reqResult[0]
+            cursor = reqResult[1]
         elif opp_code == 5:
-            run_trace(conn, cursor)
+            runResult = run_trace(conn, cursor)
+
+            conn = runResult[0]
+            cursor = runResult[1]
         elif opp_code == 6:
             manage_caches(conn, cursor)
         elif opp_code != 0:
