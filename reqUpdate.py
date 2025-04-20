@@ -43,7 +43,7 @@ if __name__ == "__main__":
             req_id = getReqID(cursor, URL)
 
             if (not req_id):
-                raise SystemExit(f"Request {URL} not found!")
+                print(f"Request {URL} not found!")
             else:
                 for c in range(1, n, 4):
                     cache_id = getCacheID(cursor, args[c])
