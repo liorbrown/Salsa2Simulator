@@ -6,12 +6,11 @@ import sqlite3
 from zoneinfo import ZoneInfo
 from prettytable import PrettyTable
 import requests
-import re
 
 from MyConfig import MyConfig
 import os
     
-def show_runs(cursor):
+def show_runs(cursor: sqlite3.Cursor):
     """
     Fetches and displays all entries in the 'Runs' table
     
@@ -20,16 +19,12 @@ def show_runs(cursor):
     """
 
     # Fetch all rows from the "Runs" table
-    #cursor.execute("SELECT * FROM Runs")
     cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
-                             T.Name trace_name, COUNT(C.id) requests, 
-                             SUM(C.Access_Cost) total_cost, AVG(C.Access_Cost) average_cost
-                      FROM Runs RUN, Requests REQ, Caches C, Traces T   
-                      WHERE REQ.Run_ID = RUN.id AND 
-                            C.id = REQ.Cache_id AND 
-                            RUN.Trace_ID = T.id
-                      GROUP BY RUN.id""")
-    rows = cursor.fetchall()
+                             T.Name trace_name, 0 requests, 
+                             0 total_cost, 0 average_cost
+                      FROM Runs RUN JOIN Traces T   
+                      ON RUN.Trace_ID = T.id""")
+    runs = cursor.fetchall()
     
     # Fetch column names for the table
     column_names = [description[0] for description in cursor.description]
@@ -38,7 +33,12 @@ def show_runs(cursor):
     table = PrettyTable()
     table.field_names = column_names  # Set column headers
     
-    for row in rows:
+    for run in runs:
+        cost = get_cost(cursor, run[0])
+        avg_cost = cost[0] / cost[1]
+
+        row = [run[0], run[1], run[2], run[3], run[4], cost[1], cost[0], avg_cost]
+        
         table.add_row(row)
     
     print(table)
@@ -47,22 +47,12 @@ def show_runs(cursor):
 
     if run_id:
         # Fetch rows from the "Requests" table
-        cursor.execute("""SELECT R.Time Time, R.URL URL, C.Name Cache, C.Access_cost Cost
-                          FROM Requests R, Caches C 
-                          WHERE R.Cache_ID = C.id AND R.Run_ID = ?""",[run_id])
+        cursor.execute("""SELECT id, Time, URL
+                          FROM Requests
+                          WHERE Run_ID = ?""",[run_id])
         rows = cursor.fetchall()
 
-        # Fetch column names for the table
-        column_names = [description[0] for description in cursor.description]
-        
-        # Display the data in a table format using PrettyTable
-        table = PrettyTable()
-        table.field_names = column_names  # Set column headers
-        
-        for row in rows:
-            table.add_row(row)
-        
-        print(table)
+        show_requsts_details(rows)
     
 def show_keys(cursor, trace_id):    
     """
@@ -133,8 +123,55 @@ def show_traces(cursor):
     if trace_id:
         show_keys(cursor, trace_id)
     
+def show_requsts_details(requests):
+    # Fetch column names for the table
+    column_names = ['Time', 'URL', 'Indicators', 'Accessed', 'Resolution', 'Hit?', 'Cost']
+    
+    # Display the data in a table format using PrettyTable
+    table = PrettyTable()
+    table.field_names = column_names  # Set column headers
+    
+    miss_cost = get_miss_cost(cursor)
 
-def show_requsts(cursor):
+    for request in requests:
+        cursor.execute("""SELECT indication, accessed, resolution, Name, Access_Cost
+                          FROM CacheReq R JOIN Caches C
+                          ON R.cache_id = C.id
+                          WHERE R.req_id = ? """, [request[0]])
+        
+        caches = cursor.fetchall()
+        indicators = "["
+        accessed = "["
+        resolution = "["
+        hit = 'Miss'
+        cost = miss_cost
+
+        for cache in caches:
+            if cache[0]:
+                if len(indicators) > 1:
+                    indicators += ","
+                indicators += cache[3]
+            if cache[1]:
+                if len(accessed) > 1:
+                    accessed += ","
+                accessed += cache[3]
+            if cache[2]:
+                if len(resolution) > 1:
+                    resolution += ","
+                resolution += cache[3]
+            if cache[1] and cache[2]:
+                hit = 'Hit'
+                cost = cache[4]
+        
+        indicators += "]"
+        accessed += "]"
+        resolution += "]"
+
+        table.add_row([request[1], request[2], indicators, accessed, resolution, hit, cost])
+    
+    print(table)
+
+def show_requsts(cursor : sqlite3.Cursor):
     """
     Fetches and displays a specified number of the most recent requests, 
     including cache details.
@@ -146,24 +183,14 @@ def show_requsts(cursor):
     count = int(input("How match requsts you want to show?: "))
      
     # Fetch rows from the "Requests" table, limiting last {count}
-    cursor.execute("""SELECT R.Time Time, R.URL URL, C.Name Cache, C.Access_cost Cost 
-                      FROM Requests R, Caches C 
-                      WHERE R.Cache_ID = C.id
-                      ORDER BY R.Time DESC LIMIT ?""", [count])
-    rows = cursor.fetchall()
-    rows.reverse()
+    cursor.execute("""SELECT id, Time, URL
+                      FROM Requests
+                      ORDER BY Time DESC LIMIT ?""", [count])
+    req_ids = cursor.fetchall()
+    req_ids.reverse()
 
-    # Fetch column names for the table
-    column_names = [description[0] for description in cursor.description]
+    show_requsts_details(req_ids)
     
-    # Display the data in a table format using PrettyTable
-    table = PrettyTable()
-    table.field_names = column_names  # Set column headers
-    
-    for row in rows:
-        table.add_row(row)
-    
-    print(table)
 
 # def check_parent_hit():
 #     """
@@ -204,10 +231,20 @@ def show_requsts(cursor):
 #     else:
 #         return "0"
 
-def check_parent_hit(status):
-    parts = status.split(';')
+# def check_parent_hit(status):
+#     parts = status.split(';')
 
-    return "miss" if parts[1] != "hit" else parts[0]
+#     return "miss" if parts[1] != "hit" else parts[0]
+
+def get_miss_cost(cursor):
+
+    cursor.execute("""SELECT Access_Cost
+                      FROM Caches
+                      WHERE Name = 'miss'""")
+    
+    result = cursor.fetchone()[0]
+
+    return result
 
 def exectue_single_req(conn, cursor):
     """
@@ -222,19 +259,34 @@ def exectue_single_req(conn, cursor):
 
     try:
         # Execute request without run id
-        cache_data = exectue_req(cursor, url, 0)
+        reqID = exectue_req(cursor, url, 0)
 
-        if cache_data:
+        if reqID:
             conn.commit()
 
-            print(f"""Requst Fetched successfully from {cache_data[0]} at cost of {cache_data[1]}""")
+            cursor.execute("""SELECT Caches.Name, Caches.Access_Cost, CacheReq.resolution
+                              FROM CacheReq, Caches
+                              WHERE CacheReq.cache_id = Caches.id AND
+                                    CacheReq.req_id = ? AND
+                                    CacheReq.accessed = 1""",[reqID])
+            
+            result = cursor.fetchone()
+
+            if (result[2]):
+                name = result[0]
+                cost = result[1]
+            else:
+                name = "miss"
+                cost = get_miss_cost(cursor)
+
+            print(f"""Requst Fetched successfully from {name} at cost of {cost}""")
 
     except sqlite3.DatabaseError as e:
         # If request fails, print the exact error message from SQLite
         print(f"Request failed: {e}")
 
 
-def exectue_req(cursor, url, run_id):
+def exectue_req(cursor : sqlite3.Cursor, url : str, run_id : int):
     """
     Simulates the execution of a request by selecting a random cache 
     and logging the request.
@@ -264,24 +316,28 @@ def exectue_req(cursor, url, run_id):
             cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
             return 0
         else:
-
-            # Get IP of parent cache that retrive the request
-            cache = check_parent_hit(response.headers.get("Cache-Status"))
+            # Insert request's data into requests table
+            cursor.execute("""INSERT INTO Requests('URL', 'Run_ID') 
+                            VALUES (?,?)""",[url,run_id])
             
-            if (cache):
-                # Gets cache data from caches table
-                cursor.execute("Select * from Caches WHERE NAME=?", [cache])
-                row = cursor.fetchone()
-                cache_id = row[0]
+            cursor.execute("SELECT MAX(id) FROM Requests")
+            reqID = cursor.fetchone()[0]
+            status = response.headers.get("Cache-Status").split(';')
+            hit = status[1] == "hit"
 
-                # Insert request's data into requests table
-                cursor.execute("""INSERT INTO Requests('URL','Cache_ID','Run_ID') 
-                                VALUES (?,?,?)""",[url,cache_id,run_id])
+            # Gets cache data from caches table
+            cursor.execute("Select * from Caches WHERE NAME=?", [status[0]])
+            row = cursor.fetchone()
+            cacheID = row[0]
 
-                # Return cache name and cache access cost
-                return (row[2], row[3])
-            
-            return 0
+            # Insert request's data into requests table
+            cursor.execute("""INSERT INTO CacheReq
+                           ('req_id', 'cache_id', 'accessed', resolution) 
+                            VALUES (?,?,?,?)""",[reqID,cacheID, 1, hit])
+
+            # Return reqID
+            return (reqID)
+        
     except Exception as e:
         print(f"Request {url} error - {e}")
 
@@ -403,7 +459,37 @@ def is_squid_up(cursor):
         print(f"proxy request failed: {e}")
         return False
     
-def run_trace(conn, cursor):
+def get_cost(cursor : sqlite3.Cursor, run_id : int):
+    cursor.execute("""SELECT id
+                      FROM Requests
+                      WHERE run_id = ?""", [run_id])
+    
+    requests = cursor.fetchall()
+    req_count = len(requests)
+    total_cost = 0
+    miss_cost = get_miss_cost(cursor)
+
+    for request in requests:
+        cost = miss_cost
+
+        cursor.execute("""SELECT CR.accessed, CR.resolution, C.Access_Cost
+                          FROM CacheReq CR JOIN Caches C
+                          ON CR.cache_id = C.id                          
+                          WHERE CR.req_id = ?""", [request[0]])
+        
+        caches = cursor.fetchall()
+
+        for cache in caches:
+            if (cache[0] and cache[1]):
+                cost = cache[2]
+                break
+        
+        total_cost += cost
+    
+    return [total_cost, req_count]
+
+    
+def run_trace(conn, cursor : sqlite3.Cursor):
     """
     Executes all requests for a specified trace 
     and logs the results into the 'Runs' table.
@@ -467,33 +553,33 @@ def run_trace(conn, cursor):
                 cursor.execute("SELECT URL FROM Trace_Entry WHERE Trace_ID = ?", [trace_id])
                 rows = cursor.fetchall()
 
-                opp_code = 1
+                # opp_code = 1
 
-                try:
-                    from pynput import keyboard
+                # try:
+                #     from pynput import keyboard
 
-                    def on_press(key):
-                        stop_loop[0] = key == keyboard.Key.esc
+                #     def on_press(key):
+                #         stop_loop[0] = key == keyboard.Key.esc
 
-                    listener = keyboard.Listener(on_press=on_press)
-                    listener.start()
-                except Exception as e:
-                    print(f"Failed to start keyboard listener: {e}")
+                #     listener = keyboard.Listener(on_press=on_press)
+                #     listener.start()
+                # except Exception as e:
+                #     print(f"Failed to start keyboard listener: {e}")
 
                 # Run on all trace URLs
                 for row in rows:
-                    if stop_loop[0]:
+#                     if stop_loop[0]:
 
-                        # Take only last char from input for ignore "Esc" that came before
-                        opp_code = int(input("""What to do with this run:
-1: Stop and save run
-2: Stop without saving
-3: Keep running
-""")[-1])
-                        if opp_code == 1 or opp_code == 2:
-                            break
-                        else:
-                            stop_loop[0] = False 
+#                         # Take only last char from input for ignore "Esc" that came before
+#                         opp_code = int(input("""What to do with this run:
+# 1: Stop and save run
+# 2: Stop without saving
+# 3: Keep running
+# """)[-1])
+#                         if opp_code == 1 or opp_code == 2:
+#                             break
+#                         else:
+#                             stop_loop[0] = False 
 
                     # If requests succeed and there is limit, 
                     # decrease limit and check if reach it
@@ -502,40 +588,40 @@ def run_trace(conn, cursor):
                         if not limit:
                             break
                 
-                if opp_code != 2:
+                # if opp_code != 2:
 
-                    jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
+                jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
-                    # Update run entry with end time
-                    cursor.execute("""UPDATE Runs
-                    SET End_Time = ?
-                    WHERE id = ?""",[jerusalem_time, run_id])
+                # Update run entry with end time
+                cursor.execute("""UPDATE Runs
+                SET End_Time = ?
+                WHERE id = ?""",[jerusalem_time, run_id])
 
-                    conn.commit()
+                conn.commit()
 
-                    print("Trace run successfully!")
-                    
-                    # Fetch current run from the "Runs" table, for show the result
-                    cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
-                                            T.Name trace_name, COUNT(C.id) requests, 
-                                            SUM(C.Access_Cost) total_cost, AVG(C.Access_Cost) average_cost
-                                    FROM Runs RUN, Requests REQ, Caches C, Traces T  
-                                    WHERE REQ.Run_ID = RUN.id AND 
-                                    C.id = REQ.Cache_id AND 
-                                    RUN.Trace_ID = T.id AND 
-                                    RUN.id = ?""",[run_id])
-                    row = cursor.fetchone()
-                    
-                    column_names = [description[0] for description in cursor.description]
+                print("Trace run successfully!")
+                
+                cost = get_cost(cursor, run_id)
+                avg_cost = cost[0] / cost[1]
 
-                    # Display the data in a table format using PrettyTable
-                    table = PrettyTable()
-                    table.field_names = column_names  # Set column headers
+                # Fetch current run from the "Runs" table, for show the result
+                cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
+                                        T.Name trace_name, ? requests, ? Total_cost, ? Avarege_cost
+                                FROM Runs RUN JOIN Traces T  
+                                ON RUN.Trace_ID = T.id
+                                WHERE RUN.id = ?""",[cost[1], cost[0], avg_cost, run_id])
+                row = cursor.fetchone()
+                
+                column_names = [description[0] for description in cursor.description]
 
-                    # Add selected row  
-                    table.add_row(row)
-                    
-                    print(table)
+                # Display the data in a table format using PrettyTable
+                table = PrettyTable()
+                table.field_names = column_names  # Set column headers
+
+                # Add selected row  
+                table.add_row(row)
+                
+                print(table)
 
             except sqlite3.DatabaseError as e:
                 # If insertion fails, print the exact error message from SQLite
@@ -687,41 +773,46 @@ def manage_caches(conn, cursor):
 def adapt_datetime(dt):
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
-# Register the adapter for datetime
-sqlite3.register_adapter(datetime, adapt_datetime)
+try:
+    # Register the adapter for datetime
+    sqlite3.register_adapter(datetime, adapt_datetime)
 
-conn = sqlite3.connect(MyConfig.db_file)
-cursor = conn.cursor()
+    conn = sqlite3.connect(MyConfig.db_file)
+    cursor = conn.cursor()
 
-warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
+    warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
-print("################# Welcome to Salsa2 simulator ####################")
+    print("################# Welcome to Salsa2 simulator ####################")
 
-opp_code = 1
-while opp_code:
-    opp_code = int(input("""Choose your destiny:
-1: Show previous runs
-2: Show Traces
-3: Show last requsts
-4: Execute single requst
-5: Run entire trace
-6: Manage caches
-0: Exit
-""")[-1])
-    if opp_code == 1:
-        show_runs(cursor)
-    elif opp_code == 2:
-        show_traces(cursor)
-    elif opp_code == 3:
-        show_requsts(cursor)
-    elif opp_code == 4:
-        exectue_single_req(conn, cursor)
-    elif opp_code == 5:
-        run_trace(conn, cursor)
-    elif opp_code == 6:
-        manage_caches(conn, cursor)
-    elif opp_code != 0:
-        print("Invalid option, please choose a valid number.")
+    opp_code = 1
+    while opp_code:
+        opp_code = int(input("""Choose your destiny:
+    1: Show previous runs
+    2: Show Traces
+    3: Show last requsts
+    4: Execute single requst
+    5: Run entire trace
+    6: Manage caches
+    0: Exit
+    """)[-1])
+        if opp_code == 1:
+            show_runs(cursor)
+        elif opp_code == 2:
+            show_traces(cursor)
+        elif opp_code == 3:
+            show_requsts(cursor)
+        elif opp_code == 4:
+            exectue_single_req(conn, cursor)
+        elif opp_code == 5:
+            run_trace(conn, cursor)
+        elif opp_code == 6:
+            manage_caches(conn, cursor)
+        elif opp_code != 0:
+            print("Invalid option, please choose a valid number.")
 
-conn.close()
-print("ByeBye")
+    conn.close()
+    print("ByeBye")
+finally:
+    if (conn):
+        conn.close()
+
