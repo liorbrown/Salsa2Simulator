@@ -316,9 +316,11 @@ def exectue_req(cursor : sqlite3.Cursor, url : str, run_id : int):
             cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
             return 0
         else:
+            jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
+
             # Insert request's data into requests table
-            cursor.execute("""INSERT INTO Requests('URL', 'Run_ID') 
-                            VALUES (?,?)""",[url,run_id])
+            cursor.execute("""INSERT INTO Requests('Time', 'URL', 'Run_ID') 
+                            VALUES (?,?,?)""",[jerusalem_time, url,run_id])
             
             cursor.execute("SELECT MAX(id) FROM Requests")
             reqID = cursor.fetchone()[0]

@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from MyConfig import MyConfig
 
 def getCacheID(cursor : sqlite3.Cursor, name : str):
-    cursor.execute("""SELECT id FROM Caches WHERE Name = ?""", [str])
+    cursor.execute("""SELECT id FROM Caches WHERE Name = ?""", [name])
     return cursor.fetchone()
 
 if __name__ == "__main__":
@@ -42,8 +42,8 @@ if __name__ == "__main__":
                                 [req_id, cache_id, args[c+1], args[c+2], args[c+3]])
                 
                 conn.commit()
-        except:
-            print(sys.exc_info()[0])
+        except sqlite3.DatabaseError as e:
+            print(e)
         
         finally:
             conn.close()
