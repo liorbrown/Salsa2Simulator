@@ -1,12 +1,33 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import sys
 import sqlite3
 from zoneinfo import ZoneInfo
 from MyConfig import MyConfig
 
+def getReqID(cursor : sqlite3.Cursor, URL : str):
+    
+    cursor.execute("""SELECT MAX(id), Time 
+                       FROM Requests
+                       WHERE URL = ?""",[URL])
+            
+    req_data = cursor.fetchone()
+
+    if (not req_data):
+        return None
+    else:
+        israel_timezone = ZoneInfo("Asia/Jerusalem")
+        req_time_naive = datetime.strptime(req_data[1], '%Y-%m-%d %H:%M:%S')
+        req_time = req_time_naive.replace(tzinfo=israel_timezone)
+        now_time = datetime.now(israel_timezone)
+
+        if ((now_time - req_time).seconds > 60):
+            return None
+        else:
+            return req_data[0]
+
 def getCacheID(cursor : sqlite3.Cursor, name : str):
     cursor.execute("""SELECT id FROM Caches WHERE Name = ?""", [name])
-    return cursor.fetchone()
+    return cursor.fetchone()[0]
 
 if __name__ == "__main__":
     args = sys.argv[1:]
@@ -18,16 +39,11 @@ if __name__ == "__main__":
         try:
             conn = sqlite3.connect(MyConfig.db_file)
             cursor = conn.cursor()
-            jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
-
-            cursor.execute("""SELECT MAX(id) FROM Requests 
-                            WHERE URL = ? AND
-                            ? - Time < 60""", [args[0], jerusalem_time])
-            
-            req_id = cursor.fetchone()
+            URL = args[0]
+            req_id = getReqID(cursor, URL)
 
             if (not req_id):
-                raise SystemExit(f"Request {args[0]} not found!")
+                raise SystemExit(f"Request {URL} not found!")
             else:
                 for c in range(1, n, 4):
                     cache_id = getCacheID(cursor, args[c])
@@ -36,8 +52,8 @@ if __name__ == "__main__":
                         print(f"Cache {args[c]} not found!")
                         exit
 
-                    cursor.execute("""INSERT INTO ChaceReq 
-                                (req_id, cache_id, indicator, accessed, resolution)
+                    cursor.execute("""INSERT INTO CacheReq 
+                                (req_id, cache_id, indication, accessed, resolution)
                                 VALUES (?,?,?,?,?)""",
                                 [req_id, cache_id, args[c+1], args[c+2], args[c+3]])
                 
