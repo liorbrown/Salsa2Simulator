@@ -12,7 +12,7 @@ class MyConfig:
             str: The value associated with the key, or None if the key is not found.
         """
         try:
-            config_file = 'salsa2.config'
+            config_file = '/home/lior/Salsa2Simulator/salsa2.config'
             with open(config_file, 'r') as file:
                 for line in file:
                     # Split the line into key and value

@@ -8,11 +8,11 @@ def getReqID(cursor : sqlite3.Cursor, URL : str):
     
     cursor.execute("""SELECT MAX(id), Time 
                        FROM Requests
-                       WHERE URL = ?""",[URL])
+                       WHERE URL LIKE ?""", [f"%{URL}%"])
             
     req_data = cursor.fetchone()
 
-    if (not req_data):
+    if (not req_data or not req_data[0]):
         return None
     else:
         israel_timezone = ZoneInfo("Asia/Jerusalem")
@@ -21,7 +21,7 @@ def getReqID(cursor : sqlite3.Cursor, URL : str):
         now_time = datetime.now(israel_timezone)
 
         if ((now_time - req_time).seconds > 60):
-            return None
+             return None
         else:
             return req_data[0]
 
@@ -32,6 +32,8 @@ def getCacheID(cursor : sqlite3.Cursor, name : str):
 if __name__ == "__main__":
     args = sys.argv[1:]
     n = len(args)
+
+    print(f"Start executing req update for: {args}")
 
     if (n < 5 or n % 4 != 1):
         print("Invalid number of arguments")
@@ -58,6 +60,9 @@ if __name__ == "__main__":
                                 [req_id, cache_id, args[c+1], args[c+2], args[c+3]])
                 
                 conn.commit()
+
+                print(f"Request {args} updated successfuly!")
+
         except sqlite3.DatabaseError as e:
             print(e)
         
