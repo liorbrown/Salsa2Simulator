@@ -6,35 +6,31 @@ import sqlite3
 from zoneinfo import ZoneInfo
 from prettytable import PrettyTable
 import requests
-
+from DBAccess import DBAccess
 from MyConfig import MyConfig
 import os
     
-def show_runs(cursor: sqlite3.Cursor):
-    """
-    Fetches and displays all entries in the 'Runs' table
-    
-    Args:
-        cursor (sqlite3.Cursor): The database cursor to execute SQL queries.
-    """
+def show_runs():
+    """ Fetches and displays all entries in the 'Runs' table"""
 
     # Fetch all rows from the "Runs" table
-    cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
+    DBAccess.cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
                              T.Name trace_name, 0 requests, 
                              0 total_cost, 0 average_cost
                       FROM Runs RUN JOIN Traces T   
                       ON RUN.Trace_ID = T.id""")
-    runs = cursor.fetchall()
+    runs = DBAccess.cursor.fetchall()
     
     # Fetch column names for the table
-    column_names = [description[0] for description in cursor.description]
+    column_names = [description[0] for description in DBAccess.cursor.description]
     
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
     table.field_names = column_names  # Set column headers
     
+    # Runs on run
     for run in runs:
-        cost = get_cost(cursor, run[0])
+        cost = get_cost(run[0])
         avg_cost = cost[0] / cost[1]
 
         row = [run[0], run[1], run[2], run[3], run[4], cost[1], cost[0], avg_cost]
@@ -47,14 +43,14 @@ def show_runs(cursor: sqlite3.Cursor):
 
     if run_id:
         # Fetch rows from the "Requests" table
-        cursor.execute("""SELECT id, Time, URL
+        DBAccess.cursor.execute("""SELECT id, Time, URL
                           FROM Requests
                           WHERE Run_ID = ?""",[run_id])
-        rows = cursor.fetchall()
+        rows = DBAccess.cursor.fetchall()
 
         show_requsts_details(rows)
     
-def show_keys(cursor, trace_id):    
+def show_keys(trace_id):    
     """
     Fetches and displays URLs associated with a specific Trace ID from the 'Keys' table.
     
@@ -65,18 +61,18 @@ def show_keys(cursor, trace_id):
     group_by = input("Group by URLs? (y/n)")
     if group_by.upper() == 'Y':
         # Fetch all URLs from keys table, that belong to trace_id 
-        cursor.execute("""SELECT URL, COUNT(id) count
+        DBAccess.cursor.execute("""SELECT URL, COUNT(id) count
                         FROM Trace_Entry 
                         WHERE Trace_ID = ?
                         GROUP BY URL
                         ORDER BY COUNT(id) DESC""",[trace_id])
     else:
         # Fetch all URLs from keys table, that belong to trace_id 
-        cursor.execute("""SELECT URL
+        DBAccess.cursor.execute("""SELECT URL
                         FROM Trace_Entry 
                         WHERE Trace_ID = ?""",[trace_id])
-    rows = cursor.fetchall()
-    column_names = [description[0] for description in cursor.description]
+    rows = DBAccess.cursor.fetchall()
+    column_names = [description[0] for description in DBAccess.cursor.description]
 
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
@@ -87,7 +83,7 @@ def show_keys(cursor, trace_id):
     
     print(table)
 
-def show_traces(cursor):
+def show_traces():
     """
     Fetches and displays trace details, 
     including the number of keys and last update time.
@@ -98,15 +94,15 @@ def show_traces(cursor):
     """
 
     # Fetch all rows from the "Traces" table
-    cursor.execute("""SELECT T.id ID, T.Name Name, 
+    DBAccess.cursor.execute("""SELECT T.id ID, T.Name Name, 
                              COUNT(K.id) Keys, T.Last_Update Last_Update 
                       FROM Traces T, Trace_Entry K
                       WHERE T.id = K.Trace_ID
                       GROUP BY T.id""")
-    rows = cursor.fetchall()
+    rows = DBAccess.cursor.fetchall()
     
     # Fetch column names for the table
-    column_names = [description[0] for description in cursor.description]
+    column_names = [description[0] for description in DBAccess.cursor.description]
     
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
@@ -121,7 +117,7 @@ def show_traces(cursor):
     trace_id = int(input("""Select trace ID to show it content, or 0 to go back to main menu: """))
 
     if trace_id:
-        show_keys(cursor, trace_id)
+        show_keys(trace_id)
     
 def show_requsts_details(requests):
     # Fetch column names for the table
@@ -131,15 +127,15 @@ def show_requsts_details(requests):
     table = PrettyTable()
     table.field_names = column_names  # Set column headers
     
-    miss_cost = get_miss_cost(cursor)
+    miss_cost = get_miss_cost()
 
     for request in requests:
-        cursor.execute("""SELECT indication, accessed, resolution, Name, Access_Cost
+        DBAccess.cursor.execute("""SELECT indication, accessed, resolution, Name, Access_Cost
                           FROM CacheReq R JOIN Caches C
                           ON R.cache_id = C.id
                           WHERE R.req_id = ? """, [request[0]])
         
-        caches = cursor.fetchall()
+        caches = DBAccess.cursor.fetchall()
         indicators = "["
         accessed = "["
         resolution = "["
@@ -171,7 +167,7 @@ def show_requsts_details(requests):
     
     print(table)
 
-def show_requsts(cursor : sqlite3.Cursor):
+def show_requsts():
     """
     Fetches and displays a specified number of the most recent requests, 
     including cache details.
@@ -183,25 +179,25 @@ def show_requsts(cursor : sqlite3.Cursor):
     count = int(input("How match requsts you want to show?: "))
      
     # Fetch rows from the "Requests" table, limiting last {count}
-    cursor.execute("""SELECT id, Time, URL
+    DBAccess.cursor.execute("""SELECT id, Time, URL
                       FROM Requests
                       ORDER BY Time DESC LIMIT ?""", [count])
-    req_ids = cursor.fetchall()
+    req_ids = DBAccess.cursor.fetchall()
     req_ids.reverse()
 
     show_requsts_details(req_ids)
     
-def get_miss_cost(cursor: sqlite3.Cursor):
+def get_miss_cost():
 
-    cursor.execute("""SELECT Access_Cost
+    DBAccess.cursor.execute("""SELECT Access_Cost
                       FROM Caches
                       WHERE Name = 'miss'""")
     
-    result = cursor.fetchone()[0]
+    result = DBAccess.cursor.fetchone()[0]
 
     return result
 
-def exectue_single_req(conn, cursor):
+def exectue_single_req():
     """
     Executes a single request for a given URL and logs it into the 'Requests' table.
     
@@ -214,20 +210,17 @@ def exectue_single_req(conn, cursor):
 
     try:
         # Execute request without run id
-        reqResult = exectue_req(conn, cursor, url, 0)
-        conn = reqResult[0]
-        cursor = reqResult[1]
-        reqID = reqResult[2]
+        reqID = exectue_req(url, 0)
 
         if reqID:
 
-            cursor.execute("""SELECT Caches.Name, Caches.Access_Cost, CacheReq.resolution
+            DBAccess.cursor.execute("""SELECT Caches.Name, Caches.Access_Cost, CacheReq.resolution
                               FROM CacheReq, Caches
                               WHERE CacheReq.cache_id = Caches.id AND
                                     CacheReq.req_id = ? AND
                                     CacheReq.accessed = 1""",[reqID])
             
-            result = cursor.fetchone()
+            result = DBAccess.cursor.fetchone()
 
             if (result):
                 if (result[2]):
@@ -235,7 +228,7 @@ def exectue_single_req(conn, cursor):
                     cost = result[1]
                 else:
                     name = "miss"
-                    cost = get_miss_cost(cursor)
+                    cost = get_miss_cost()
 
                 print(f"""Requst Fetched successfully from {name} at cost of {cost}""")
 
@@ -243,10 +236,7 @@ def exectue_single_req(conn, cursor):
         # If request fails, print the exact error message from SQLite
         print(f"Request failed: {e}")
 
-    finally:
-        return conn, cursor
-
-def exectue_req(conn : sqlite3.Connection, cursor: sqlite3.Cursor, url : str, run_id : int):
+def exectue_req(url : str, run_id : int):
     """
     Execute request to squid 
     
@@ -267,47 +257,48 @@ def exectue_req(conn : sqlite3.Connection, cursor: sqlite3.Cursor, url : str, ru
         jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
         # Insert request's data into requests table
-        cursor.execute("""INSERT INTO Requests('Time', 'URL', 'Run_ID') 
+        DBAccess.cursor.execute("""INSERT INTO Requests('Time', 'URL', 'Run_ID') 
                         VALUES (?,?,?)""",[jerusalem_time, url,run_id])
         
         # Need to close connection before continuing because squid need to update DB
-        conn.commit()
-        conn.close()
+        DBAccess.conn.commit()
+        DBAccess.close()
 
         # Execute requsts to squid proxy
         response = requests.get(url, proxies=PROXIES,timeout=10, verify=False)
 
-        # Reopen DB        
-        conn = sqlite3.connect(MyConfig.db_file)
-        cursor = conn.cursor()
+        # Reopen DB 
+        DBAccess.open()       
 
         # Check if request failed
         if (not response.ok):
             print(f"Request {url} error - {response.status_code}")
 
             # Delete URL form traces entries and from Keys list
-            cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
-            cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
+            DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
+            DBAccess.cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
 
-            conn.commit()
+            DBAccess.conn.commit()
             
-            return conn, cursor, 0
+            return None
         else:    
             
-            cursor.execute("SELECT MAX(id) FROM Requests")
-            reqID = cursor.fetchone()[0]
+            DBAccess.cursor.execute("SELECT MAX(id) FROM Requests")
+            reqID = DBAccess.cursor.fetchone()[0]
 
             # Return reqID
-            return (conn, cursor, reqID)
+            return (reqID)
         
     except Exception as e:
         print(f"Request {url} error - {e}")
 
-        # Delete URL form traces entries and from Keys list
-        cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
-        cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
+        DBAccess.open()
         
-        return conn, cursor, 0
+        # Delete URL form traces entries and from Keys list
+        DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
+        DBAccess.cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
+        
+        return None
     
 def clear_cache(remote_ip):
     """
@@ -354,20 +345,20 @@ def clear_cache(remote_ip):
         # Close the SSH connection
         ssh_client.close()
 
-def clear_caches(cursor):
+def clear_caches():
     """
     Clear all caches before making new trace
     """
 
     # Gets caches count for know if success to clear all
-    cursor.execute("SELECT COUNT(id) FROM Caches")
+    DBAccess.cursor.execute("SELECT COUNT(id) FROM Caches")
 
     # The -1 is because the table contains also "miss" cache that isn't realy a cache
-    caches_num = cursor.fetchone()[0] - 1
+    caches_num = DBAccess.cursor.fetchone()[0] - 1
 
     # Gets all caches from caches table
-    cursor.execute("SELECT * FROM Caches")
-    caches = cursor.fetchall()
+    DBAccess.cursor.execute("SELECT * FROM Caches")
+    caches = DBAccess.cursor.fetchall()
 
     # Run on all caches
     for cache in caches:
@@ -384,13 +375,13 @@ def clear_caches(cursor):
     # Return true only if secceed to clear all caches
     return not caches_num
 
-def is_squid_up(cursor):
+def is_squid_up():
     """
     Check if squid upon all servers by checking request to google site from each
     """
 
-    cursor.execute("SELECT IP FROM Caches WHERE id != 1")
-    caches = cursor.fetchall()    
+    DBAccess.cursor.execute("SELECT IP FROM Caches WHERE id != 1")
+    caches = DBAccess.cursor.fetchall()    
     proxy = {"https": MyConfig.https_proxy}
 
     URL = "https://www.google.com" 
@@ -421,25 +412,25 @@ def is_squid_up(cursor):
         print(f"proxy request failed: {e}")
         return False
     
-def get_cost(cursor : sqlite3.Cursor, run_id : int):
-    cursor.execute("""SELECT id
+def get_cost(run_id : int):
+    DBAccess.cursor.execute("""SELECT id
                       FROM Requests
                       WHERE run_id = ?""", [run_id])
     
-    requests = cursor.fetchall()
+    requests = DBAccess.cursor.fetchall()
     req_count = len(requests)
     total_cost = 0
-    miss_cost = get_miss_cost(cursor)
+    miss_cost = get_miss_cost()
 
     for request in requests:
         cost = miss_cost
 
-        cursor.execute("""SELECT CR.accessed, CR.resolution, C.Access_Cost
+        DBAccess.cursor.execute("""SELECT CR.accessed, CR.resolution, C.Access_Cost
                           FROM CacheReq CR JOIN Caches C
                           ON CR.cache_id = C.id                          
                           WHERE CR.req_id = ?""", [request[0]])
         
-        caches = cursor.fetchall()
+        caches = DBAccess.cursor.fetchall()
 
         for cache in caches:
             if (cache[0] and cache[1]):
@@ -451,7 +442,7 @@ def get_cost(cursor : sqlite3.Cursor, run_id : int):
     return [total_cost, req_count]
 
     
-def run_trace(conn : sqlite3.Connection, cursor : sqlite3.Cursor):
+def run_trace():
     """
     Executes all requests for a specified trace 
     and logs the results into the 'Runs' table.
@@ -462,22 +453,20 @@ def run_trace(conn : sqlite3.Connection, cursor : sqlite3.Cursor):
     """
 
     # Check if squid works properly on all servers
-    if is_squid_up(cursor):
-    
-        stop_loop = [False]  # Use a mutable object to modify within listener
+    if is_squid_up():
                 
         name = input("Insert run name: ")
         
         # Fetch all rows from the "Traces" table, with their keys count
-        cursor.execute("""SELECT T.id ID, T.Name Name, 
+        DBAccess.cursor.execute("""SELECT T.id ID, T.Name Name, 
                                 COUNT(K.id) Keys, T.Last_Update Last_Update 
                         FROM Traces T, Trace_Entry K
                         WHERE T.id = K.Trace_ID
                         GROUP BY T.id""")
-        rows = cursor.fetchall()
+        rows = DBAccess.cursor.fetchall()
         
         # Fetch column names for the table
-        column_names = [description[0] for description in cursor.description]
+        column_names = [description[0] for description in DBAccess.cursor.description]
         
         # Display the data in a table format using PrettyTable
         table = PrettyTable()
@@ -493,7 +482,7 @@ def run_trace(conn : sqlite3.Connection, cursor : sqlite3.Cursor):
         jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
         # Try to clear all caches before running trace
-        if clear_caches(cursor):
+        if clear_caches():
             
             print("All caches cleared successfully")
         
@@ -501,41 +490,24 @@ def run_trace(conn : sqlite3.Connection, cursor : sqlite3.Cursor):
                 # Create entry for the run, for generate and gets run id 
                 # for insert in requests entries.
                 # init End_time and total cost with dummies because they can't accept nulls
-                cursor.execute("""INSERT INTO Runs('Name','Start_Time','End_time','Trace_ID', 'Total_Cost')
+                DBAccess.cursor.execute("""INSERT INTO Runs('Name','Start_Time','End_time','Trace_ID', 'Total_Cost')
                                 VALUES(?,?,?,?,0)""", [name,jerusalem_time,jerusalem_time,trace_id])
                 
                 # Get current run id
-                cursor.execute("SELECT MAX(id) from Runs")
-                row = cursor.fetchone()
+                DBAccess.cursor.execute("SELECT MAX(id) from Runs")
+                row = DBAccess.cursor.fetchone()
                 run_id = row[0] 
 
                 # Get all trace's URLs
-                cursor.execute("SELECT URL FROM Trace_Entry WHERE Trace_ID = ?", [trace_id])
-                rows = cursor.fetchall()
-
-                # opp_code = 1
-
-                # try:
-                #     from pynput import keyboard
-
-                #     def on_press(key):
-                #         stop_loop[0] = key == keyboard.Key.esc
-
-                #     listener = keyboard.Listener(on_press=on_press)
-                #     listener.start()
-                # except Exception as e:
-                #     print(f"Failed to start keyboard listener: {e}")
+                DBAccess.cursor.execute("SELECT URL FROM Trace_Entry WHERE Trace_ID = ?", [trace_id])
+                rows = DBAccess.cursor.fetchall()
 
                 # Run on all trace URLs
                 for row in rows:
                     # If requests succeed and there is limit, 
                     # decrease limit and check if reach it
 
-                    reqResult = exectue_req(conn, cursor, row[0], run_id)
-                    
-                    conn = reqResult[0]
-                    cursor = reqResult[1]
-                    req_id = reqResult[2]
+                    req_id = exectue_req(row[0], run_id)
 
                     if req_id and limit > 0:
                         limit -= 1
@@ -546,26 +518,26 @@ def run_trace(conn : sqlite3.Connection, cursor : sqlite3.Cursor):
                 jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
                 # Update run entry with end time
-                cursor.execute("""UPDATE Runs
+                DBAccess.cursor.execute("""UPDATE Runs
                 SET End_Time = ?
                 WHERE id = ?""",[jerusalem_time, run_id])
 
-                conn.commit()
+                DBAccess.conn.commit()
 
                 print("Trace run successfully!")
                 
-                cost = get_cost(cursor, run_id)
+                cost = get_cost(run_id)
                 avg_cost = cost[0] / cost[1]
 
                 # Fetch current run from the "Runs" table, for show the result
-                cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
+                DBAccess.cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
                                         T.Name trace_name, ? requests, ? Total_cost, ? Avarege_cost
                                 FROM Runs RUN JOIN Traces T  
                                 ON RUN.Trace_ID = T.id
                                 WHERE RUN.id = ?""",[cost[1], cost[0], avg_cost, run_id])
-                row = cursor.fetchone()
+                row = DBAccess.cursor.fetchone()
                 
-                column_names = [description[0] for description in cursor.description]
+                column_names = [description[0] for description in DBAccess.cursor.description]
 
                 # Display the data in a table format using PrettyTable
                 table = PrettyTable()
@@ -579,11 +551,8 @@ def run_trace(conn : sqlite3.Connection, cursor : sqlite3.Cursor):
             except sqlite3.DatabaseError as e:
                 # If insertion fails, print the exact error message from SQLite
                 print(f"Trace failed: {e}")  
-            
-            finally:
-                return conn, cursor
 
-def show_caches(cursor):
+def show_caches():
     """
     Fetches and displays all cache details from the 'Caches' table.
     
@@ -592,11 +561,11 @@ def show_caches(cursor):
     """
 
     # Fetch all rows from the "Caches" table
-    cursor.execute("SELECT * FROM Caches")
-    rows = cursor.fetchall()
+    DBAccess.cursor.execute("SELECT * FROM Caches")
+    rows = DBAccess.cursor.fetchall()
     
     # Fetch column names for the table
-    column_names = [description[0] for description in cursor.description]
+    column_names = [description[0] for description in DBAccess.cursor.description]
     
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
@@ -607,7 +576,7 @@ def show_caches(cursor):
     
     print(table)
 
-def new_cache(conn, cursor):
+def new_cache():
     """
     Inserts a new cache entry into the 'Caches' table.
     
@@ -621,16 +590,16 @@ def new_cache(conn, cursor):
     cost = int(input("Insert cache access cost: "))
 
     try:
-        cursor.execute("""INSERT INTO Caches('IP','NAME','Access_Cost') 
+        DBAccess.cursor.execute("""INSERT INTO Caches('IP','NAME','Access_Cost') 
                           VALUES (?,?,?)""",[ip,name,cost])
-        conn.commit()
+        DBAccess.conn.commit()
         print("Cache added successfully!")
-        show_caches(cursor)
+        show_caches()
     except sqlite3.DatabaseError as e:
         # If insertion fails, print the exact error message from SQLite
         print(f"Insertion failed: {e}")
     
-def update_cache(conn, cursor):
+def update_cache():
     """
     Updates the specified fields of a cache entry in the 'Caches' table.
     
@@ -652,32 +621,32 @@ def update_cache(conn, cursor):
         try:
             if opp_code == 1:
                 ip = input("Insert cache IP: ")
-                cursor.execute("""UPDATE Caches 
+                DBAccess.cursor.execute("""UPDATE Caches 
                                   SET IP = ? 
                                   WHERE id = ?""",[ip, cache_id])
             elif opp_code == 2:
                 name = input("Insert cache name: ")
-                cursor.execute("""UPDATE Caches 
+                DBAccess.cursor.execute("""UPDATE Caches 
                                   SET Name = ? 
                                   WHERE id = ?""",[name, cache_id])
             elif opp_code == 3:
                 cost = int(input("Insert cache access cost: "))
-                cursor.execute("""UPDATE Caches 
+                DBAccess.cursor.execute("""UPDATE Caches 
                                   SET Access_Cost = ? 
                                   WHERE id = ?""",[cost, cache_id])
             elif opp_code != 0:
                 # In case of invalid input
                 print("Invalid option, please choose a valid number.")        
 
-            conn.commit()
+            DBAccess.conn.commit()
             print("Cache updated successfully!")
-            show_caches(cursor)
+            show_caches()
 
         except sqlite3.DatabaseError as e:
             # If insertion fails, print the exact error message from SQLite
             print(f"Update failed: {e}")
 
-def delete_cache(conn, cursor):
+def delete_cache():
     """
     Delete cache form caches table
     """
@@ -686,12 +655,12 @@ def delete_cache(conn, cursor):
     verify = input(f"Are you sure you want to delete cache number {cache_id} (y/n)? ")
 
     if verify.upper() == "Y":
-        cursor.execute("DELETE FROM Caches WHERE id=?", [cache_id])
-        conn.commit()
+        DBAccess.cursor.execute("DELETE FROM Caches WHERE id=?", [cache_id])
+        DBAccess.conn.commit()
 
         print("Cache deleted successfully!")
 
-def manage_caches(conn, cursor):
+def manage_caches():
     """
     Provides a menu-driven interface to manage cache entries in the database.    
     
@@ -710,17 +679,17 @@ def manage_caches(conn, cursor):
 0: Back to main menu
 """))    
         if opp_code == 1:
-            show_caches(cursor)
+            show_caches()
         elif opp_code == 2:
-            new_cache(conn, cursor)
+            new_cache()
         elif opp_code == 3:
-            show_caches(cursor)
-            update_cache(conn, cursor)
-            show_caches(cursor)
+            show_caches()
+            update_cache()
+            show_caches()
         elif opp_code == 4:
-            show_caches(cursor)
-            delete_cache(conn, cursor)
-            show_caches(cursor)
+            show_caches()
+            delete_cache()
+            show_caches()
         elif opp_code != 0:
             # In case of invalid input
             print("Invalid option, please choose a valid number.")
@@ -733,8 +702,7 @@ try:
     # Register the adapter for datetime
     sqlite3.register_adapter(datetime, adapt_datetime)
 
-    conn = sqlite3.connect(MyConfig.db_file)
-    cursor = conn.cursor()
+    DBAccess.open()
 
     warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
@@ -752,29 +720,20 @@ try:
     0: Exit
     """)[-1])
         if opp_code == 1:
-            show_runs(cursor)
+            show_runs()
         elif opp_code == 2:
-            show_traces(cursor)
+            show_traces()
         elif opp_code == 3:
-            show_requsts(cursor)
+            show_requsts()
         elif opp_code == 4:
-            reqResult = exectue_single_req(conn, cursor)
-
-            conn = reqResult[0]
-            cursor = reqResult[1]
+            exectue_single_req()
         elif opp_code == 5:
-            runResult = run_trace(conn, cursor)
-
-            conn = runResult[0]
-            cursor = runResult[1]
+            run_trace()
         elif opp_code == 6:
-            manage_caches(conn, cursor)
+            manage_caches()
         elif opp_code != 0:
             print("Invalid option, please choose a valid number.")
 
-    conn.close()
     print("ByeBye")
 finally:
-    if (conn):
-        conn.close()
-
+    DBAccess.close()
