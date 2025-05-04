@@ -18,7 +18,7 @@ path = "httpSites"
 name = "httpTrace"
 
 # Insert a new trace record into the Traces table
-cursor.execute("INSERT INTO Traces(Name) VALUES (?)",[name])
+# cursor.execute("INSERT INTO Traces(Name) VALUES (?)",[name])
 
  # Get the ID of the newly created trace
 cursor.execute("SELECT MAX(id) FROM Traces")

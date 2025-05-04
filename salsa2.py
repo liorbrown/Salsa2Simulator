@@ -30,12 +30,13 @@ def show_runs():
     
     # Runs on run
     for run in runs:
-        cost = get_cost(run[0])
-        avg_cost = cost[0] / cost[1]
+        cost, reqNum = get_cost(run[0])
+        if (reqNum):
+            avg_cost = cost / reqNum
 
-        row = [run[0], run[1], run[2], run[3], run[4], cost[1], cost[0], avg_cost]
-        
-        table.add_row(row)
+            row = [run[0], run[1], run[2], run[3], run[4], cost, reqNum, avg_cost]
+            
+            table.add_row(row)
     
     print(table)
 
@@ -249,8 +250,8 @@ def exectue_req(url : str, run_id : int):
         tuple: The cache name and its access cost.
     """
     PROXIES = {
-            "http": MyConfig.http_proxy,
-            "https": MyConfig.https_proxy,
+            "http": MyConfig.http_proxy
+            #, "https": MyConfig.https_proxy,
         }
 
     try:
@@ -382,9 +383,9 @@ def is_squid_up():
 
     DBAccess.cursor.execute("SELECT IP FROM Caches WHERE id != 1")
     caches = DBAccess.cursor.fetchall()    
-    proxy = {"https": MyConfig.https_proxy}
+    proxy = {"http": MyConfig.https_proxy}
 
-    URL = "https://www.google.com" 
+    URL = "http://www.google.com" 
 
     try:
         response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
@@ -482,9 +483,8 @@ def run_trace():
         jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
         # Try to clear all caches before running trace
-        if clear_caches():
-            
-            print("All caches cleared successfully")
+        if True: #clear_caches():           
+            #print("All caches cleared successfully")
         
             try:    
                 # Create entry for the run, for generate and gets run id 
@@ -526,27 +526,29 @@ def run_trace():
 
                 print("Trace run successfully!")
                 
-                cost = get_cost(run_id)
-                avg_cost = cost[0] / cost[1]
+                cost, reqNum = get_cost(run_id)
 
-                # Fetch current run from the "Runs" table, for show the result
-                DBAccess.cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
-                                        T.Name trace_name, ? requests, ? Total_cost, ? Avarege_cost
-                                FROM Runs RUN JOIN Traces T  
-                                ON RUN.Trace_ID = T.id
-                                WHERE RUN.id = ?""",[cost[1], cost[0], avg_cost, run_id])
-                row = DBAccess.cursor.fetchone()
-                
-                column_names = [description[0] for description in DBAccess.cursor.description]
+                if reqNum:
+                    avg_cost = cost / reqNum
 
-                # Display the data in a table format using PrettyTable
-                table = PrettyTable()
-                table.field_names = column_names  # Set column headers
+                    # Fetch current run from the "Runs" table, for show the result
+                    DBAccess.cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
+                                            T.Name trace_name, ? requests, ? Total_cost, ? Avarege_cost
+                                    FROM Runs RUN JOIN Traces T  
+                                    ON RUN.Trace_ID = T.id
+                                    WHERE RUN.id = ?""",[reqNum, cost, avg_cost, run_id])
+                    row = DBAccess.cursor.fetchone()
+                    
+                    column_names = [description[0] for description in DBAccess.cursor.description]
 
-                # Add selected row  
-                table.add_row(row)
-                
-                print(table)
+                    # Display the data in a table format using PrettyTable
+                    table = PrettyTable()
+                    table.field_names = column_names  # Set column headers
+
+                    # Add selected row  
+                    table.add_row(row)
+                    
+                    print(table)
 
             except sqlite3.DatabaseError as e:
                 # If insertion fails, print the exact error message from SQLite
