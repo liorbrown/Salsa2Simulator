@@ -9,7 +9,17 @@ import requests
 from DBAccess import DBAccess
 from MyConfig import MyConfig
 import os
-    
+
+def show_run(run_id : int):
+    if run_id:
+        # Fetch rows from the "Requests" table
+        DBAccess.cursor.execute("""SELECT id, Time, URL
+                          FROM Requests
+                          WHERE Run_ID = ?""",[run_id])
+        rows = DBAccess.cursor.fetchall()
+
+        show_requsts_details(rows)
+
 def show_runs():
     """ Fetches and displays all entries in the 'Runs' table"""
 
@@ -32,7 +42,7 @@ def show_runs():
     for run in runs:
         cost, reqNum = get_cost(run[0])
         if (reqNum):
-            avg_cost = cost / reqNum
+            avg_cost = round(cost / reqNum, 3)
 
             row = [run[0], run[1], run[2], run[3], run[4], cost, reqNum, avg_cost]
             
@@ -42,14 +52,7 @@ def show_runs():
 
     run_id = int(input("""Choose run ID to see his requests, or 0 to go back to main menu: """))
 
-    if run_id:
-        # Fetch rows from the "Requests" table
-        DBAccess.cursor.execute("""SELECT id, Time, URL
-                          FROM Requests
-                          WHERE Run_ID = ?""",[run_id])
-        rows = DBAccess.cursor.fetchall()
-
-        show_requsts_details(rows)
+    show_run(run_id)
     
 def show_keys(trace_id):    
     """
@@ -529,7 +532,7 @@ def run_trace():
                 cost, reqNum = get_cost(run_id)
 
                 if reqNum:
-                    avg_cost = cost / reqNum
+                    avg_cost = round(cost / reqNum, 3)
 
                     # Fetch current run from the "Runs" table, for show the result
                     DBAccess.cursor.execute("""SELECT RUN.id ID, RUN.Name, RUN.Start_Time start, RUN.End_Time end,
@@ -549,6 +552,8 @@ def run_trace():
                     table.add_row(row)
                     
                     print(table)
+
+                    show_run(run_id)
 
             except sqlite3.DatabaseError as e:
                 # If insertion fails, print the exact error message from SQLite
