@@ -253,8 +253,8 @@ def exectue_req(url : str, run_id : int):
         tuple: The cache name and its access cost.
     """
     PROXIES = {
-            "http": MyConfig.http_proxy
-            #, "https": MyConfig.https_proxy,
+            "http": MyConfig.http_proxy,
+            "https": MyConfig.https_proxy
         }
 
     try:
@@ -298,9 +298,9 @@ def exectue_req(url : str, run_id : int):
 
         DBAccess.open()
         
-        # Delete URL form traces entries and from Keys list
-        DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
-        DBAccess.cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
+        # # Delete URL form traces entries and from Keys list
+        # DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
+        # DBAccess.cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
         
         return None
     
@@ -386,9 +386,9 @@ def is_squid_up():
 
     DBAccess.cursor.execute("SELECT IP FROM Caches WHERE id != 1")
     caches = DBAccess.cursor.fetchall()    
-    proxy = {"http": MyConfig.https_proxy}
+    proxy = {"https": MyConfig.https_proxy}
 
-    URL = "http://www.google.com" 
+    URL = "https://www.google.com" 
 
     try:
         response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
