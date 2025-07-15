@@ -253,8 +253,7 @@ def exectue_req(url : str, run_id : int):
         tuple: The cache name and its access cost.
     """
     PROXIES = {
-            "http": MyConfig.http_proxy,
-            "https": MyConfig.https_proxy
+            "http": MyConfig.http_proxy
         }
 
     try:
@@ -279,8 +278,8 @@ def exectue_req(url : str, run_id : int):
             print(f"Request {url} error - {response.status_code}")
 
             # Delete URL form traces entries and from Keys list
-            DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
-            DBAccess.cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
+            # DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
+            # DBAccess.cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
 
             DBAccess.conn.commit()
             
@@ -386,9 +385,9 @@ def is_squid_up():
 
     DBAccess.cursor.execute("SELECT IP FROM Caches WHERE id != 1")
     caches = DBAccess.cursor.fetchall()    
-    proxy = {"https": MyConfig.https_proxy}
+    proxy = {"http": MyConfig.http_proxy}
 
-    URL = "https://www.google.com" 
+    URL = "http://www.google.com" 
 
     try:
         response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
@@ -398,7 +397,7 @@ def is_squid_up():
 
             # Runs on all parents to check if they also OK
             for cache in caches:
-                proxy = {"https": f'http://{cache[0]}:{MyConfig.squid_port}'}
+                proxy = {"http": f'http://{cache[0]}:{MyConfig.squid_port}'}
                 try:
                     response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
 
