@@ -1,3 +1,4 @@
+import re
 import urllib3
 import warnings
 import paramiko
@@ -13,9 +14,11 @@ import os
 def show_run(run_id : int):
     if run_id:
         # Fetch rows from the "Requests" table
-        DBAccess.cursor.execute("""SELECT id, Time, URL
-                          FROM Requests
-                          WHERE Run_ID = ?""",[run_id])
+        DBAccess.cursor.execute("""SELECT R.id, R.Time, R.URL
+                          FROM Requests R JOIN CacheReq CR
+                          ON R.id = CR.req_id
+                          WHERE R.Run_ID = ? AND CR.accessed = 1
+                          GROUP BY R.id""",[run_id])
         rows = DBAccess.cursor.fetchall()
 
         show_requsts_details(rows)
@@ -131,8 +134,6 @@ def show_requsts_details(requests):
     table = PrettyTable()
     table.field_names = column_names  # Set column headers
     
-    miss_cost = get_miss_cost()
-
     for request in requests:
         DBAccess.cursor.execute("""SELECT indication, accessed, resolution, Name, Access_Cost
                           FROM CacheReq R JOIN Caches C
@@ -143,8 +144,8 @@ def show_requsts_details(requests):
         indicators = "["
         accessed = "["
         resolution = "["
-        hit = 'Miss'
-        cost = miss_cost
+        hit = False
+        cost = 0
 
         for cache in caches:
             if cache[0]:
@@ -155,13 +156,15 @@ def show_requsts_details(requests):
                 if len(accessed) > 1:
                     accessed += ","
                 accessed += cache[3]
+                cost += cache[4]
             if cache[2]:
                 if len(resolution) > 1:
                     resolution += ","
                 resolution += cache[3]
-            if cache[1] and cache[2]:
-                hit = 'Hit'
-                cost = cache[4]
+            
+            hit = hit or cache[1] & cache[2]
+
+        cost += (not hit) * get_miss_cost() 
         
         indicators += "]"
         accessed += "]"
@@ -183,9 +186,12 @@ def show_requsts():
     count = int(input("How match requsts you want to show?: "))
      
     # Fetch rows from the "Requests" table, limiting last {count}
-    DBAccess.cursor.execute("""SELECT id, Time, URL
-                      FROM Requests
-                      ORDER BY Time DESC LIMIT ?""", [count])
+    DBAccess.cursor.execute("""SELECT R.id, R.Time, R.URL
+                               FROM Requests R JOIN CacheReq CR
+                               ON R.id = CR.req_id
+                               WHERE CR.accessed = 1
+                               GROUP BY R.id
+                               ORDER BY R.Time DESC LIMIT ?""", [count])
     req_ids = DBAccess.cursor.fetchall()
     req_ids.reverse()
 
@@ -416,32 +422,30 @@ def is_squid_up():
         return False
     
 def get_cost(run_id : int):
-    DBAccess.cursor.execute("""SELECT id
-                      FROM Requests
-                      WHERE run_id = ?""", [run_id])
+    # Select all requests that accessed
+    DBAccess.cursor.execute("""SELECT DISTINCT R.id
+                      FROM Requests R JOIN CacheReq CR
+                      ON R.id = CR.req_id
+                      WHERE R.run_id = ? AND CR.accessed = 1""", [run_id])
     
     requests = DBAccess.cursor.fetchall()
     req_count = len(requests)
     total_cost = 0
-    miss_cost = get_miss_cost()
 
     for request in requests:
-        cost = miss_cost
 
-        DBAccess.cursor.execute("""SELECT CR.accessed, CR.resolution, C.Access_Cost
+        # Select sun of cost and resolution of all accessed caches
+        DBAccess.cursor.execute("""SELECT SUM(CR.resolution), SUM(C.Access_Cost)
                           FROM CacheReq CR JOIN Caches C
                           ON CR.cache_id = C.id                          
-                          WHERE CR.req_id = ?""", [request[0]])
+                          WHERE CR.req_id = ? AND CR.accessed = 1""", [request[0]])
         
-        caches = DBAccess.cursor.fetchall()
+        caches = DBAccess.cursor.fetchone()
 
-        for cache in caches:
-            if (cache[0] and cache[1]):
-                cost = cache[2]
-                break
+        if (len(caches) > 1):
+            # Total cost is costs sum + miss cost if no resolution found for accessed caches
+            total_cost += caches[1] + (1 - min(1, caches[0])) * get_miss_cost()
         
-        total_cost += cost
-    
     return [total_cost, req_count]
 
     
@@ -700,6 +704,70 @@ def manage_caches():
             # In case of invalid input
             print("Invalid option, please choose a valid number.")
 
+def fill_caches():
+    """
+    Fills the 'Caches' table in an SQLite database with data parsed from a Squid
+    configuration file.
+    """
+    try:
+
+        DBAccess.cursor.execute("DELETE FROM Caches")
+
+        with open(MyConfig.conf_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("miss_penalty"):
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue # Skip malformed lines
+
+                    DBAccess.cursor.execute(
+                    "INSERT INTO Caches (IP, Name, Access_Cost) VALUES (?, ?, ?)",
+                    ('0', 'miss', parts[1]))
+
+                elif line.startswith("cache_peer "):
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue # Skip malformed lines
+
+                    ip = parts[1]
+                    name = None
+                    access_cost = None
+
+                    # Use regex to find name= and access-cost= as they might not be in fixed positions
+                    name_match = re.search(r'name=(\S+)', line)
+                    if name_match:
+                        name = name_match.group(1)
+
+                    access_cost_match = re.search(r'access-cost=(\S+)', line)
+                    if access_cost_match:
+                        try:
+                            access_cost = float(access_cost_match.group(1))
+                        except ValueError:
+                            print(f"Warning: Could not parse access-cost for line: {line}")
+                            continue # Skip this entry if access_cost is invalid
+
+                    if ip and name and access_cost is not None:
+                        try:
+                            DBAccess.cursor.execute(
+                                "INSERT OR IGNORE INTO Caches (IP, Name, Access_Cost) VALUES (?, ?, ?)",
+                                (ip, name, access_cost)
+                            )
+                        except sqlite3.IntegrityError as e:
+                            print(f"Error inserting data for IP {ip}, Name {name}: {e}")
+                    else:
+                        print(f"Warning: Missing IP, Name, or Access_Cost in line: {line}")
+
+        DBAccess.conn.commit()
+        print(f"Successfully populated Caches table from {MyConfig.conf_file}")
+
+    except FileNotFoundError:
+        print(f"Error: Configuration file not found at {MyConfig.conf_file}")
+    except sqlite3.Error as e:
+        print(f"SQLite error: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
 # Register adapter for datetime objects to store them as strings in SQLite
 def adapt_datetime(dt):
     return dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -709,7 +777,7 @@ try:
     sqlite3.register_adapter(datetime, adapt_datetime)
 
     DBAccess.open()
-
+    fill_caches()
     warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 
     print("################# Welcome to Salsa2 simulator ####################")
