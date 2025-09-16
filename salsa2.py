@@ -10,6 +10,7 @@ import requests
 from DBAccess import DBAccess
 from MyConfig import MyConfig
 import os
+from typing import Dict, List, Iterable, Tuple
 
 def show_run(run_id : int):
     if run_id:
@@ -21,7 +22,7 @@ def show_run(run_id : int):
                           GROUP BY R.id""",[run_id])
         rows = DBAccess.cursor.fetchall()
 
-        show_requsts_details(rows)
+        show_requests_details(rows)
 
 def show_runs():
     """ Fetches and displays all entries in the 'Runs' table"""
@@ -125,54 +126,129 @@ def show_traces():
 
     if trace_id:
         show_keys(trace_id)
-    
-def show_requsts_details(requests):
-    # Fetch column names for the table
-    column_names = ['Time', 'URL', 'Indications', 'Accessed', 'Resolution', 'Hit?', 'Cost']
-    
+
+def create_caches_dict() -> dict[str, list[int]]:
+    result: dict[str, list[int]] = {}
+
+    DBAccess.cursor.execute("SELECT Name FROM Caches WHERE Name <> 'miss'")
+    caches = DBAccess.cursor.fetchall()
+
+    for (name,) in caches:
+        result[name] = [0] * 4
+
+    result['Sum'] = [0] * 4
+
+    return result
+
+def classification_metrics(data: dict) -> list:
+    """
+    Input:  {name: [TN, FN, FP, TP]}
+    Output: [[name, accuracy, recall, precision, f1], ...]
+    Metrics are rounded to 3 decimals. Division by zero returns 0.0.
+    """
+    results = []
+    for name, (TN, FP, FN, TP) in data.items():
+        # total number of samples
+        total = TN + FN + FP + TP
+
+        # Accuracy = (TP + TN) / total
+        accuracy  = (TP + TN) / total if total > 0 else 0.0
+
+        # Recall = TP / (TP + FN)
+        recall    = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+
+        # Precision = TP / (TP + FP)
+        precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+
+        # F1 = harmonic mean of precision and recall
+        f1 = (2 * precision * recall / (precision + recall)
+              if (precision + recall) > 0 else 0.0)
+
+        # append row: [name, accuracy, recall, precision, f1]
+        results.append([
+            name,
+            round(accuracy, 3),
+            round(recall, 3),
+            round(precision, 3),
+            round(f1, 3)
+        ])
+
+    return results
+
+def printAccuracy(cachesDict : Dict[str, List[int]]) -> None:
+     
+    column_names = ['Name', 'Accuracy', 'Recall', 'Precision', 'F1 Score']
+
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
     table.field_names = column_names  # Set column headers
-    
-    for request in requests:
-        DBAccess.cursor.execute("""SELECT indication, accessed, resolution, Name, Access_Cost
-                          FROM CacheReq R JOIN Caches C
-                          ON R.cache_id = C.id
-                          WHERE R.req_id = ? """, [request[0]])
-        
-        caches = DBAccess.cursor.fetchall()
-        indicators = "["
-        accessed = "["
-        resolution = "["
+
+    table.add_rows(classification_metrics(cachesDict))
+
+    print(table)
+
+def show_requests_details(requests: Iterable[Tuple]) -> PrettyTable:
+    # Columns
+    table = PrettyTable()
+    table.field_names = ['Time', 'URL', 'Indications', 'Accessed', 'Resolution', 'Hit?', 'Cost']
+
+    cachesDict: Dict[str, List[int]] = create_caches_dict()
+
+    for req in requests:
+        req_id, req_time, req_url = req[0], req[1], req[2]
+
+        DBAccess.cursor.execute(
+            """
+            SELECT indication, accessed, resolution, Name, Access_Cost
+            FROM CacheReq R
+            JOIN Caches C ON R.cache_id = C.id
+            WHERE R.req_id = ?
+            """,
+            [req_id]
+        )
+        rows = DBAccess.cursor.fetchall()
+
+        indicated_names: List[str] = []
+        accessed_names:  List[str] = []
+        resolved_names:  List[str] = []
+
         hit = False
         cost = 0
 
-        for cache in caches:
-            if cache[0]:
-                if len(indicators) > 1:
-                    indicators += ","
-                indicators += cache[3]
-            if cache[1]:
-                if len(accessed) > 1:
-                    accessed += ","
-                accessed += cache[3]
-                cost += cache[4]
-            if cache[2]:
-                if len(resolution) > 1:
-                    resolution += ","
-                resolution += cache[3]
-            
-            hit = hit or cache[1] & cache[2]
+        for (indication, accessed, resolution, name, access_cost) in rows:
+            # resType = 0..3 if indication, resolution are 0/1
+            resType = int(indication) + 2 * int(resolution)
+            if not (0 <= resType < 4):
+                raise ValueError(f"Unexpected resType {resType} for ({indication=}, {resolution=})")
 
-        cost += (not hit) * get_miss_cost() 
-        
-        indicators += "]"
-        accessed += "]"
-        resolution += "]"
+            if name not in cachesDict:
+                raise KeyError(f"Cache name {name!r} not in cachesDict")
 
-        table.add_row([request[1], request[2], indicators, accessed, resolution, hit, cost])
-    
+            cachesDict[name][resType] += 1
+            cachesDict['Sum'][resType] += 1
+
+            if indication:
+                indicated_names.append(name)
+            if accessed:
+                accessed_names.append(name)
+                cost += access_cost or 0  # handle NULL
+            if resolution:
+                resolved_names.append(name)
+
+            # true “hit” only if accessed AND resolved
+            hit = hit or accessed & resolution
+
+        if not hit:
+            cost += get_miss_cost()
+
+        def fmt(names: List[str]) -> str:
+            return f"[{','.join(names)}]"
+
+        table.add_row([req_time, req_url, fmt(indicated_names), fmt(accessed_names),
+                       fmt(resolved_names), hit, cost])
+
     print(table)
+    printAccuracy(cachesDict)
 
 def show_requsts():
     """
@@ -195,7 +271,7 @@ def show_requsts():
     req_ids = DBAccess.cursor.fetchall()
     req_ids.reverse()
 
-    show_requsts_details(req_ids)
+    show_requests_details(req_ids)
     
 def get_miss_cost():
 
@@ -407,12 +483,14 @@ def is_squid_up():
                 try:
                     response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
 
-                    if (not response.ok):
-                        print(f"Server {cache[0]} error: request failed")
-                        return False
+                    if (response.ok):
+                        return True
+                    # if (not response.ok):
+                    #     print(f"Server {cache[0]} error: request failed")
+                    #     return False
                 except Exception as e:
                     print(f"Server {cache[0]} error: {e}")
-                    return False
+                    # return False
             return True
         else:
             print(f"proxy request failed")
