@@ -11,6 +11,27 @@ from DBAccess import DBAccess
 from MyConfig import MyConfig
 import os
 from typing import Dict, List, Iterable, Tuple
+# CA bundle helper will prefer config value from `salsa2.config` via MyConfig
+def get_ca_bundle() -> str:
+    """Return the CA bundle path from config or a sensible system default."""
+    return MyConfig.ca_bundle if getattr(MyConfig, 'ca_bundle', None) else '/etc/ssl/certs/ca-certificates.crt'
+
+def get_proxies_for_cache(http_host: str | None = None) -> dict:
+    """Return proxies mapping used throughout the app.
+
+    If http_host is provided it will be used for the "http" entry (useful
+    when checking individual cache parents); otherwise the value from
+    MyConfig or DEFAULT_HTTP_PROXY is used.
+    """
+    http_proxy = (f'http://{http_host}:{MyConfig.squid_port}' if http_host
+                  else (MyConfig.http_proxy if getattr(MyConfig, 'http_proxy', None) else 'http://127.0.0.1:3128'))
+
+    https_proxy = MyConfig.https_proxy if getattr(MyConfig, 'https_proxy', None) else 'http://192.168.10.1:8888'
+
+    return {
+        'http': http_proxy,
+        'https': https_proxy,
+    }
 
 def show_run(run_id : int):
     if run_id:
@@ -334,9 +355,8 @@ def exectue_req(url : str, run_id : int):
     Returns:
         tuple: The cache name and its access cost.
     """
-    PROXIES = {
-            "http": MyConfig.http_proxy
-        }
+    # Build proxies mapping from configuration (or sensible defaults)
+    PROXIES = get_proxies_for_cache()
 
     try:
         jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
@@ -349,14 +369,18 @@ def exectue_req(url : str, run_id : int):
         DBAccess.conn.commit()
         DBAccess.close()
 
-        # Execute requsts to squid proxy
-        response = requests.get(url, proxies=PROXIES,timeout=10, verify=False)
+        # Execute requests through the configured proxies.
+        # For HTTPS we enable verification using the configured CA bundle so Fiddler's root is trusted.
+        # NOTE: requests will ignore the `verify` argument for plain HTTP URLs.
+        # Disable automatic redirect following to maintain full control over what gets sent
+        # and prevent duplicate requests in Squid logs
+        response = requests.get(url, proxies=PROXIES, timeout=10, verify=get_ca_bundle(), allow_redirects=False)
 
         # Reopen DB 
         DBAccess.open()       
 
-        # Check if request failed
-        if (not response.ok):
+        # Check if request failed (treat 3xx redirects as successful responses)
+        if response.status_code >= 400:
             print(f"Request {url} error - {response.status_code}")
 
             # Delete URL form traces entries and from Keys list
@@ -466,31 +490,29 @@ def is_squid_up():
     """
 
     DBAccess.cursor.execute("SELECT IP FROM Caches WHERE id != 1")
-    caches = DBAccess.cursor.fetchall()    
-    proxy = {"http": MyConfig.http_proxy}
+    caches = DBAccess.cursor.fetchall()
 
-    URL = "http://www.google.com" 
+    URL = "http://www.google.com"
 
     try:
-        response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
+        # Use the standard mapping: HTTP -> local proxy, HTTPS -> Fiddler
+        proxy = get_proxies_for_cache()
+        response = requests.get(URL, proxies=proxy, timeout=10, verify=get_ca_bundle())
 
-        # Check if proxy OK    
-        if (response.ok):
-
+        # Check if proxy OK
+        if response.ok:
             # Runs on all parents to check if they also OK
             for cache in caches:
-                proxy = {"http": f'http://{cache[0]}:{MyConfig.squid_port}'}
+                # For parent checks we use the parent's HTTP address for http
+                # and still route HTTPS to the Fiddler proxy.
+                proxy = get_proxies_for_cache(http_host=cache[0])
                 try:
-                    response = requests.get(URL, proxies=proxy,timeout=10,verify=False)
+                    response = requests.get(URL, proxies=proxy, timeout=10, verify=get_ca_bundle())
 
-                    if (response.ok):
+                    if response.ok:
                         return True
-                    # if (not response.ok):
-                    #     print(f"Server {cache[0]} error: request failed")
-                    #     return False
                 except Exception as e:
                     print(f"Server {cache[0]} error: {e}")
-                    # return False
             return True
         else:
             print(f"proxy request failed")
