@@ -12,7 +12,7 @@ class MyConfig:
             str: The value associated with the key, or None if the key is not found.
         """
         try:
-            config_file = 'salsa2.config'
+            config_file = '/home/lior/Salsa2Simulator/salsa2.config'
             with open(config_file, 'r') as file:
                 for line in file:
                     # Split the line into key and value
@@ -28,6 +28,7 @@ class MyConfig:
             return None
         
     db_file = get_config_value('db_file')
+    conf_file = get_config_value('conf_file')
     log_file = get_config_value('log_file')
     http_proxy = get_config_value('http_proxy')
     https_proxy = get_config_value('https_proxy')
