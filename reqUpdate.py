@@ -2,7 +2,7 @@ from datetime import datetime
 import sys
 import sqlite3
 from zoneinfo import ZoneInfo
-from DBAccess import DBAccess
+from database.db_access import DBAccess
 
 def getReqID(URL : str):
     """
