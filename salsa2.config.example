@@ -1,0 +1,32 @@
+# Salsa2 Simulator Configuration Template
+# Copy this file to 'salsa2.config' and customize for your environment
+
+# Database Configuration
+db_file='/path/to/your/database.db'
+
+# Squid Configuration Files
+conf_file='/path/to/squid.conf'
+log_file='/var/log/squid/access.log'
+
+# Proxy Configuration
+# HTTP proxy (local Squid instance)
+http_proxy='http://127.0.0.1:3128'
+
+# HTTPS proxy (can be different, e.g., Fiddler for HTTPS inspection)
+https_proxy='http://192.168.10.1:8888'
+
+# Squid Port
+squid_port='3128'
+
+# SSH Configuration (for remote cache management)
+user='your_username'
+
+# Cache Directory on Remote Servers
+cache_dir='/var/spool/squid'
+
+# SSL/TLS Configuration
+# Path to CA certificate bundle for HTTPS verification
+ca_bundle='/etc/ssl/certs/ca-certificates.crt'
+
+# Optional: Set SQUID_PASS environment variable for SSH operations
+# export SQUID_PASS='your_password'

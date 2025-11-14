@@ -1,11 +1,87 @@
-# Ignore virtual environment
-venv/
-.vscode/
+# Python
 __pycache__/
-testKeybord.py
+*.py[cod]
+*$py.class
+*.so
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+salsa2.db
 salsa2.db-journal
-salsa2.db
+
+# Configuration (sensitive data)
+salsa2.config
+*.conf
+!squid.conf.example
+
+# Cache and temporary files
+cache/
 digest_stats
-salsa2.db
-shodan-1.31.0.tar.gz
+httpSites
+*.tmp
+*.temp
+*.bak
+
+# Backup scripts (contain sensitive IPs, paths, usernames)
+backup_db.sh
+backup_db_onedrive.sh
+backup_db_remote.sh
+backup_db_scp.sh
+backup_salsa2.bat
+backup_salsa2_from_vm.ps1
+backup_simple.ps1
+setup_scheduled_backup.ps1
+
+# Backup documentation (contains sensitive paths and server information)
+BACKUP_TO_ONEDRIVE.md
+DATABASE_BACKUP_GUIDE.md
+QUICKSTART_WINDOWS_BACKUP.md
+WINDOWS_AUTO_BACKUP_GUIDE.md
+
+# Test files
 testKeybord.py
+testSqlite
+testSqlite.cc
+test*.py
+
+# External downloads
+shodan-*.tar.gz
+
+# Old backup (tracked once, no need for future changes)
+old/
+
+# Logs
+*.log
+logs/
+
+# SSH keys and secrets
+*.pem
+*.key
+id_rsa*
+.ssh/
+.env
+.env.local
+
+# OS files
+Thumbs.db
+.DS_Store

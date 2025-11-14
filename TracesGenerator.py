@@ -1,7 +1,7 @@
 from datetime import datetime
 import sqlite3
 from zoneinfo import ZoneInfo
-from MyConfig import MyConfig
+from database.db_access import DBAccess
 import random
 
 """
@@ -18,17 +18,47 @@ def adapt_datetime(dt):
 sqlite3.register_adapter(datetime, adapt_datetime)
 
 print("################## Welcome to traces generator #####################")
-traces_name = input("Insert traces name: ")
-traces = int(input("Insert number of traces to create: "))
 
-conn = sqlite3.connect(MyConfig.db_file)
-cursor = conn.cursor()
+traces_name = input("Insert traces name: ").strip()
+if not traces_name:
+    print("Error: Trace name cannot be empty.")
+    exit()
+
+try:
+    traces = int(input("Insert number of traces to create: "))
+    if traces <= 0:
+        print("Error: Number of traces must be positive.")
+        exit()
+except ValueError:
+    print("Error: Please enter a valid number for traces.")
+    exit()
+
+# Open database connection using centralized DBAccess
+DBAccess.open()
+conn = DBAccess.conn
+cursor = DBAccess.cursor
 
 # Retrieve the maximum ID from the Keys table to determine available key range
 cursor.execute("SELECT MAX(id) FROM Keys")
-keys = cursor.fetchone()[0]
+keys_result = cursor.fetchone()[0]
 
-entries = int(input("Insert number of entries to create in each trace: "))
+if not keys_result:
+    print("Error: No URLs found in Keys table. Please add URLs first.")
+    DBAccess.close()
+    exit()
+
+keys = keys_result
+
+try:
+    entries = int(input("Insert number of entries to create in each trace: "))
+    if entries <= 0:
+        print("Error: Number of entries must be positive.")
+        DBAccess.close()
+        exit()
+except ValueError:
+    print("Error: Please enter a valid number for entries.")
+    DBAccess.close()
+    exit()
 
 # Check if the requested number of entries exceeds the available keys
 if entries > keys:

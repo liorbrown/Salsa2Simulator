@@ -7,18 +7,19 @@ Ensure the database schema and `MyConfig` settings are correctly configured befo
 from datetime import datetime
 import sqlite3
 from zoneinfo import ZoneInfo
-from MyConfig import MyConfig
+from database.db_access import DBAccess
 
-# Establish a connection to the SQLite database
-conn = sqlite3.connect(MyConfig.db_file)
-cursor = conn.cursor()
+# Open database connection using centralized DBAccess
+DBAccess.open()
+conn = DBAccess.conn
+cursor = DBAccess.cursor
 
 # Get user inputs for file path and trace name
 path = "httpSites"
 name = "httpTrace"
 
 # Insert a new trace record into the Traces table
-cursor.execute("INSERT INTO Traces(Name) VALUES (?)",[name])
+# cursor.execute("INSERT INTO Traces(Name) VALUES (?)",[name])
 
  # Get the ID of the newly created trace
 cursor.execute("SELECT MAX(id) FROM Traces")
