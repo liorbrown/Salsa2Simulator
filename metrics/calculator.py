@@ -1,19 +1,19 @@
 """Metrics calculation functions for classification performance analysis."""
 from typing import Dict, List, Iterable, Tuple
 
-from ui.repository import UIRepository
+from cache.registry import get_cache_names_excluding_miss
 
 
 def create_caches_dict() -> Dict[str, List[int]]:
     """
-    Fetches cache names from the database and creates a dictionary
+    Creates a dictionary from the volatile cache registry
     where each key is a cache name and the value is [TN, FP, FN, TP] initialized to 0.
     This matches the format expected by classification_metrics().
     
     Returns:
         Dictionary with cache names as keys and [TN, FP, FN, TP] as values
     """
-    caches = UIRepository.get_cache_names_excluding_miss()
+    caches = get_cache_names_excluding_miss()
     
     caches_dict = {}
     for cache_name in caches:
