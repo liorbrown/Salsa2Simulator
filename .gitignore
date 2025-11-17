@@ -74,13 +74,23 @@ old/
 *.log
 logs/
 
-# SSH keys and secrets
+# SSH keys and secrets - CRITICAL: Never commit these!
 *.pem
 *.key
 id_rsa*
 .ssh/
 .env
 .env.local
+.env*.local
+*.secret
+*_secret
+*_token
+*_api_key
+*_password
+credentials.json
+secrets.json
+config/secrets.py
+config/credentials.py
 
 # OS files
 Thumbs.db
