@@ -5,6 +5,7 @@ following the separation of concerns principle.
 """
 from typing import List, Tuple
 from database.db_access import DBAccess
+from cache.registry import get_cache_names_excluding_miss
 
 
 class UIRepository:
@@ -87,15 +88,12 @@ class UIRepository:
     
     @staticmethod
     def get_cache_names_excluding_miss() -> List[str]:
-        """Get all cache names except 'miss' (penalty indicator).
+        """Get all cache names except 'miss' (penalty indicator) from volatile registry.
         
         Returns:
             List of cache names
         """
-        DBAccess.cursor.execute("""
-            SELECT Name FROM Caches WHERE Name != 'miss'
-        """)
-        return [row[0] for row in DBAccess.cursor.fetchall()]
+        return get_cache_names_excluding_miss()
     
     @staticmethod
     def get_request_cache_details(req_id: int) -> List[Tuple]:
