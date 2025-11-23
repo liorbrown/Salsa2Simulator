@@ -118,7 +118,7 @@ def print_accuracy(cachesDict: Dict[str, List[int]]) -> None:
 def show_requests_details(requests: Iterable[Tuple]) -> None:
     """Display detailed information about requests with classification metrics."""
     table = PrettyTable()
-    table.field_names = ['Time', 'URL', 'Indications', 'Accessed', 'Resolution', 'Hit?', 'Cost']
+    table.field_names = ['ReqID', 'Time', 'URL', 'Indications', 'Accessed', 'Resolution', 'Hit?', 'Cost']
 
     cachesDict: Dict[str, List[int]] = create_caches_dict()
 
@@ -142,6 +142,7 @@ def show_requests_details(requests: Iterable[Tuple]) -> None:
             return f"[{','.join(names)}]"
 
         table.add_row([
+            req_id,
             req_time, 
             req_url, 
             fmt(details['indicated']), 
@@ -173,3 +174,50 @@ def show_requests():
     req_ids = UIRepository.get_recent_requests(count)
 
     show_requests_details(req_ids)
+
+    # After displaying recent requests, offer to re-request a URL.
+    try:
+        choice = int(input("Enter request ID to re-request its URL, or 0 to skip: "))
+    except ValueError:
+        print("Invalid input. Skipping re-request.")
+        return
+
+    if choice == 0:
+        return
+
+    # Validate choice is among displayed requests
+    displayed_ids = {r[0] for r in req_ids}
+    if choice not in displayed_ids:
+        print("The entered request ID was not in the displayed list.")
+        return
+
+    # Use the URL already displayed in `req_ids` instead of querying the DB again.
+    try:
+        # find the selected row in the displayed results
+        selected = next((r for r in req_ids if r[0] == choice), None)
+        if not selected:
+            print("The entered request ID was not found in the displayed list.")
+            return
+
+        # req_ids rows are (id, time, url)
+        url = selected[2]
+
+        from http_requests.request_executor import execute_req, get_request_result
+
+        print(f"Re-requesting URL from request {choice}: {url}")
+        # We don't have the original Run_ID in the displayed rows; pass 0.
+        new_req = execute_req(url, 0)
+        if not new_req:
+            print("Re-request failed or no cache recorded for the URL.")
+            return
+
+        # Use centralized helper to obtain the request result
+        name, cost = get_request_result(new_req)
+        if name is None:
+            print("Re-request completed but no accessed cache row was recorded.")
+            return
+
+        print(f"Request fetched successfully from {name} at cost of {cost}")
+
+    except Exception as e:
+        print(f"Failed to re-request: {e}")

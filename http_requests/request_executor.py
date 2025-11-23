@@ -125,23 +125,42 @@ def execute_single_req():
             print("Request did not complete or no cache recorded for the URL.")
             return
 
-        # Query CacheReq for the record; map cache_id -> registry name/cost
+        # Use helper to map the request -> result to keep logic centralized
+        name, cost = get_request_result(reqID)
+        if name is None:
+            print("Request completed but no accessed cache row was recorded.")
+            return
+
+        print(f"Request fetched successfully from {name} at cost of {cost}")
+
+    except sqlite3.DatabaseError as e:
+        # If request fails, print the exact error message from SQLite
+        print(f"Request failed: {e}")
+
+
+def get_request_result(req_id: int):
+    """Return (name, cost) for a request id by reading CacheReq and mapping
+    cache_id -> registry name/cost. Returns (None, None) when no accessed row
+    was recorded for the request.
+
+    This central helper avoids duplicating mapping logic in UI and CLI code.
+    """
+    try:
+        from database.db_access import DBAccess
+        from cache.registry import get_name_by_index, get_access_cost_by_index, get_miss_cost
+
         DBAccess.cursor.execute("""
             SELECT cache_id, resolution, accessed, indication
             FROM CacheReq
             WHERE req_id = ? AND accessed = 1
             LIMIT 1
-        """, [reqID])
+        """, [req_id])
 
         row = DBAccess.cursor.fetchone()
-
         if not row:
-            print("Request completed but no accessed cache row was recorded.")
-            return
+            return None, None
 
         cache_id, resolution, accessed, indication = row
-
-        from cache.registry import get_name_by_index, get_access_cost_by_index, get_miss_cost
 
         if resolution:
             name = get_name_by_index(cache_id) or "unknown"
@@ -150,8 +169,7 @@ def execute_single_req():
             name = "miss"
             cost = get_miss_cost()
 
-        print(f"Request fetched successfully from {name} at cost of {cost}")
+        return name, cost
 
-    except sqlite3.DatabaseError as e:
-        # If request fails, print the exact error message from SQLite
-        print(f"Request failed: {e}")
+    except Exception:
+        return None, None
