@@ -121,25 +121,36 @@ def execute_single_req():
     try:
         # Execute request without run id
         reqID = execute_req(url, 0)
+        if not reqID:
+            print("Request did not complete or no cache recorded for the URL.")
+            return
 
-        if reqID:
-            DBAccess.cursor.execute("""SELECT Caches.Name, Caches.Access_Cost, CacheReq.resolution
-                              FROM CacheReq, Caches
-                              WHERE CacheReq.cache_id = Caches.id AND
-                                    CacheReq.req_id = ? AND
-                                    CacheReq.accessed = 1""", [reqID])
-            
-            result = DBAccess.cursor.fetchone()
+        # Query CacheReq for the record; map cache_id -> registry name/cost
+        DBAccess.cursor.execute("""
+            SELECT cache_id, resolution, accessed, indication
+            FROM CacheReq
+            WHERE req_id = ? AND accessed = 1
+            LIMIT 1
+        """, [reqID])
 
-            if result:
-                if result[2]:
-                    name = result[0]
-                    cost = result[1]
-                else:
-                    name = "miss"
-                    cost = get_miss_cost()
+        row = DBAccess.cursor.fetchone()
 
-                print(f"""Request fetched successfully from {name} at cost of {cost}""")
+        if not row:
+            print("Request completed but no accessed cache row was recorded.")
+            return
+
+        cache_id, resolution, accessed, indication = row
+
+        from cache.registry import get_name_by_index, get_access_cost_by_index, get_miss_cost
+
+        if resolution:
+            name = get_name_by_index(cache_id) or "unknown"
+            cost = get_access_cost_by_index(cache_id)
+        else:
+            name = "miss"
+            cost = get_miss_cost()
+
+        print(f"Request fetched successfully from {name} at cost of {cost}")
 
     except sqlite3.DatabaseError as e:
         # If request fails, print the exact error message from SQLite

@@ -5,7 +5,6 @@ Ensure the database schema and `MyConfig` settings are correctly configured befo
 """
 
 from datetime import datetime
-import sqlite3
 from zoneinfo import ZoneInfo
 from database.db_access import DBAccess
 

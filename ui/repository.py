@@ -5,7 +5,7 @@ following the separation of concerns principle.
 """
 from typing import List, Tuple
 from database.db_access import DBAccess
-from cache.registry import get_cache_names_excluding_miss
+# cache registry functions are imported locally in methods to avoid name shadowing
 
 
 class UIRepository:
@@ -85,15 +85,7 @@ class UIRepository:
                 WHERE Trace_ID = ?
             """, [trace_id])
         return DBAccess.cursor.fetchall()
-    
-    @staticmethod
-    def get_cache_names_excluding_miss() -> List[str]:
-        """Get all cache names except 'miss' (penalty indicator) from volatile registry.
-        
-        Returns:
-            List of cache names
-        """
-        return get_cache_names_excluding_miss()
+
     
     @staticmethod
     def get_request_cache_details(req_id: int) -> List[Tuple]:
@@ -105,13 +97,32 @@ class UIRepository:
         Returns:
             List of tuples: (indication, accessed, resolution, name, access_cost)
         """
+        # Query CacheReq rows and map cache_id -> name/access_cost using registry
         DBAccess.cursor.execute("""
-            SELECT indication, accessed, resolution, Name, Access_Cost
-            FROM CacheReq R
-            JOIN Caches C ON R.cache_id = C.id
-            WHERE R.req_id = ?
+            SELECT indication, accessed, resolution, cache_id
+            FROM CacheReq
+            WHERE req_id = ?
         """, [req_id])
-        return DBAccess.cursor.fetchall()
+
+        rows = DBAccess.cursor.fetchall()
+
+        # Map cache_id to registry name and cost for each row
+        from cache.registry import get_name_by_index, get_access_cost_by_index, get_miss_cost
+
+        mapped = []
+        for indication, accessed, resolution, cache_id in rows:
+            # If cache_id is present, map to real cache name; otherwise treat as a miss penalty row
+            if cache_id:
+                name = get_name_by_index(cache_id) or "unknown"
+                access_cost = get_access_cost_by_index(cache_id)
+            else:
+                # No cache_id indicates a miss/penalty entry in older DBs; keep explicit 'miss'
+                name = "miss"
+                access_cost = get_miss_cost()
+
+            mapped.append((indication, accessed, resolution, name, access_cost))
+
+        return mapped
     
     @staticmethod
     def get_recent_requests(count: int) -> List[Tuple]:

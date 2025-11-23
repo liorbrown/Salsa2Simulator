@@ -1,8 +1,16 @@
 from datetime import datetime
+import os
 import sys
 import sqlite3
 from zoneinfo import ZoneInfo
 from database.db_access import DBAccess
+from cache.registry import get_index_by_name
+
+DEBUG_MODE = False
+
+def log_msg(msg : str) -> None:
+    if DEBUG_MODE:
+        print(msg)
 
 def getReqID(URL : str):
     """
@@ -53,14 +61,8 @@ def getCacheID(name : str):
     Returns:
         int: The ID of the cache.
     """
-    # Execute a SQL query to select the ID of the cache with the given name.
-    DBAccess.cursor.execute("""SELECT id FROM Caches WHERE Name = ?""", [name])
-
-    result = DBAccess.cursor.fetchone()
-
-    if result:
-        # Fetch the first row and return the first element (the ID).
-        return result[0]
+    # Map the cache name to a DB-style 1-based index using the volatile registry
+    return get_index_by_name(name)
 
 if __name__ == "__main__":
     # Get the command-line arguments, excluding the script name.
@@ -69,11 +71,29 @@ if __name__ == "__main__":
     n = len(args)
 
     # Print a message indicating the start of the script execution with the provided arguments.
-    print(f"Start executing req update for: {args}")
+    log_msg(f"Start executing req update for: {args}")
+
+    # Append a small, robust invocation log so calls from external programs
+    # are recorded even when stdout/stderr are not captured.
+    try:
+        LOG_PATH = os.path.join(os.path.dirname(__file__), 'reqUpdate.invocations.log')
+
+        def _write_log(msg: str) -> None:
+            try:
+                with open(LOG_PATH, 'a', encoding='utf-8') as _f:
+                    _f.write(f"{datetime.now().isoformat()} {msg}\n")
+            except Exception:
+                # Best-effort logging; never raise
+                pass
+
+        _write_log(f"invoked args={args}")
+    except Exception:
+        # If logging setup fails, continue without breaking execution
+        pass
 
     # Check if the number of arguments is less than 5 or if the number of arguments (excluding the first) is not a multiple of 4.
     if (n < 5 or n % 4 != 1):
-        print("Invalid number of arguments")
+        log_msg("Invalid number of arguments")
         # Expected arguments: URL, then groups of (cache_name, indication, accessed, resolution)
     else:
         try:
@@ -87,7 +107,7 @@ if __name__ == "__main__":
 
             # Check if a valid request ID was found.
             if (not req_id):
-                print(f"Request {URL} not found!")
+                log_msg(f"Request {URL} not found!")
             else:
                 # Iterate through the remaining arguments in steps of 4, starting from the second argument (index 1).
                 for c in range(1, n, 4):
@@ -98,7 +118,7 @@ if __name__ == "__main__":
 
                     # Check if a valid cache ID was found.
                     if (not cache_id):
-                        print(f"Cache {cache_name} not found!")
+                        log_msg(f"Cache {cache_name} not found!")
                         exit # Exit the script if a cache is not found.
 
                     # Execute an SQL INSERT statement to add a new entry into the 'CacheReq' table.
@@ -110,11 +130,11 @@ if __name__ == "__main__":
                 DBAccess.conn.commit()
 
                 # Print a success message indicating that the request was updated successfully.
-                print(f"Request {args} updated successfuly!")
+                log_msg(f"Request {args} updated successfuly!")
 
         except sqlite3.DatabaseError as e:
             # Catch any database-related errors and print the error message.
-            print(e)
+            log_msg(e)
 
         finally:
             DBAccess.close()

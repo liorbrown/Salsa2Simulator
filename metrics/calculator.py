@@ -1,7 +1,8 @@
 """Metrics calculation functions for classification performance analysis."""
-from typing import Dict, List, Iterable, Tuple
+from typing import Dict, List, Tuple
 
 from cache.registry import get_cache_names_excluding_miss
+from ui.repository import UIRepository
 
 
 def create_caches_dict() -> Dict[str, List[int]]:
@@ -86,12 +87,17 @@ def analyze_request_caches(req_id: int) -> Tuple[Dict[str, List[int]], Dict[str,
     }
     
     rows = UIRepository.get_request_cache_details(req_id)
-    
+
     for (indication, accessed, resolution, name, access_cost) in rows:
-        # Skip 'miss' cache - it's not a real cache peer, just a penalty indicator
+        # Skip 'miss' rows when building per-cache classification counts;
+        # 'miss' is a penalty indicator, not a real cache peer.
         if name == 'miss':
+            # contribute miss penalty to cost if accessed, but do not count in cache metrics
+            if accessed:
+                details['accessed'].append('miss')
+                details['cost'] += access_cost or 0
             continue
-            
+
         # resType = 0..3 if indication, resolution are 0/1
         # Accuracy metrics check digest accuracy: did our indication match the actual resolution?
         # resType 0: indication=0, resolution=0 → True Negative (TN) index 0
@@ -101,6 +107,14 @@ def analyze_request_caches(req_id: int) -> Tuple[Dict[str, List[int]], Dict[str,
         resType = int(indication) + 2 * int(resolution)
         if not (0 <= resType < 4):
             raise ValueError(f"Unexpected resType {resType} for ({indication=}, {resolution=})")
+
+        if name == 'miss' or name is None:
+            # miss is a penalty indicator; it should not be included in per-cache counts
+            # but it contributes to cost if accessed. (Cost addition handled below.)
+            if accessed:
+                details['cost'] += access_cost or 0
+            # nothing more to count for metrics
+            continue
 
         if name not in caches_dict:
             raise KeyError(f"Cache name {name!r} not in caches_dict")
