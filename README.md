@@ -129,13 +129,13 @@ python3 salsa2.py
 
 ```
 Choose your destiny:
-  1: Show previous runs       - View historical simulation runs
-  2: Show Traces              - Display available trace configurations
-  3: Show last requests       - Review recent request details
-  4: Execute single request   - Test individual URL requests
-  5: Run entire trace         - Execute full trace simulation
-  6: Manage caches            - Configure and monitor cache servers
-  0: Exit                     - Quit the simulator
+    1: Show previous runs
+    2: Show Traces
+    3: Show last requests
+    4: Execute single request
+    5: Run entire trace
+    6: Show caches
+    0: Exit
 ```
 
 ### Example Workflow
@@ -164,44 +164,48 @@ Choose your destiny:
 ```
 Salsa2Simulator/
 ├── salsa2.py                  # Main entry point
-├── salsa2.config              # Configuration file
+├── salsa2.config.example      # Configuration template
 ├── requirements.txt           # Python dependencies
+├── reqUpdate.py               # Requirements updater
 ├── README.md                  # This file
-├── REFACTORING_README.md      # Detailed refactoring documentation
+├── QUICKSTART.md              # Quick start guide
+├── CHANGELOG.md               # Version history
+├── LICENSE                    # MIT License
 │
 ├── config/                    # Configuration management
 │   ├── __init__.py
-│   └── config.py             # Configuration loader
+│   └── config.py              # Configuration loader
 │
 ├── database/                  # Database access layer
 │   ├── __init__.py
-│   └── db_access.py          # SQLite connection management
+│   └── db_access.py           # SQLite connection management
 │
-├── cache/                     # Cache operations
+├── http_requests/             # HTTP request execution
 │   ├── __init__.py
-│   └── cache_manager.py      # Cache CRUD, clearing, cost calculations
+│   └── request_executor.py    # Request handling with proxy support
 │
-├── requests/                  # HTTP request execution
+├── metrics/                   # Performance metrics
 │   ├── __init__.py
-│   └── request_executor.py   # Request handling with proxy support
+│   └── calculator.py          # Accuracy, precision, recall, F1-score
 │
 ├── simulation/                # Simulation engine
 │   ├── __init__.py
-│   └── simulator.py          # Trace execution orchestration
+│   └── simulator.py           # Trace execution orchestration
 │
 ├── ui/                        # User interface
 │   ├── __init__.py
-│   └── display.py            # Display functions and metrics
+│   ├── display.py             # Display functions
+│   └── repository.py          # Data repository
 │
-├── traces/                    # Trace management
-│   ├── __init__.py
-│   └── trace_generator.py    # Trace creation utilities
+├── testlabs/                  # Test labs
+│   └── run_all_tests.py       # Test runner
 │
 └── parsers/                   # External data parsers
     ├── __init__.py
-    ├── httpParser.py         # HTTP log parser
-    ├── shodanParser.py       # Shodan data parser
-    └── MajestaParser.py      # Majesta format parser
+    ├── httpParser.py          # HTTP log parser
+    ├── shodanParser.py        # Shodan data parser
+    ├── MajestaParser.py       # Majesta format parser
+    └── trace_generator.py     # Trace creation utilities
 ```
 
 ## 🔑 Key Concepts
@@ -242,40 +246,7 @@ Where:
 - **TN** (True Negative): Cache not indicated and did not resolve
 - **FN** (False Negative): Cache not indicated but would have resolved
 
-## 🛠️ Advanced Features
-
-### Remote Cache Management
-Clear cache directories on remote servers via SSH:
-```python
-# From main menu, select option 6 → Clear all caches
-```
-
-### Custom Trace Generation
-Generate traces with specific patterns:
-```python
-# Edit traces/trace_generator.py to customize:
-# - Number of entries
-# - URL distribution
-# - Access patterns
-```
-
-### Squid Configuration Parsing
-Automatically import cache configurations from Squid:
-```python
-# Cache entries are auto-populated from squid.conf
-# Including access costs and peer relationships
-```
-
-## 🧪 Testing
-
-Run the simulator with test traces:
-```bash
-# Execute a single request for testing
-python3 salsa2.py
-# Select option 4, enter test URL
-```
-
-## 📊 Output and Reports
+## 🧪 Testingand Reports
 
 ### Run Summary
 ```
@@ -296,29 +267,6 @@ python3 salsa2.py
 └─────────┴──────────┴────────┴───────────┴──────────┘
 ```
 
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-4. **Push to the branch** (`git push origin feature/amazing-feature`)
-5. **Open a Pull Request**
-
-### Development Setup
-
-```bash
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Run tests (when available)
-pytest tests/
-
-# Format code
-black .
-```
-
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
@@ -335,22 +283,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - PrettyTable for console output formatting
 - The open-source community for invaluable tools and libraries
 
-## 📮 Support
-
-For questions, issues, or feature requests:
-- Open an issue on [GitHub Issues](https://github.com/liorbrown/Salsa2Simulator/issues)
-- Check the [REFACTORING_README.md](REFACTORING_README.md) for detailed technical documentation
-
-## 🗺️ Roadmap
-
-- [ ] Add comprehensive unit tests
-- [ ] REST API interface
-- [ ] Real-time dashboard with web UI
-- [ ] Docker containerization
-- [ ] Performance optimization for large traces
-- [ ] Machine learning cache prediction models
-- [ ] Integration with other proxy servers (Varnish, Nginx)
-
----
-
-**Note**: This simulator is designed for research and testing purposes. Ensure proper authorization before testing against production cache servers.
+--- simulator is designed for research and testing purposes. Ensure proper authorization before testing against production cache servers.
