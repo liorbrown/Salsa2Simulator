@@ -166,7 +166,7 @@ Salsa2Simulator/
 ├── salsa2.py                  # Main entry point
 ├── salsa2.config.example      # Configuration template
 ├── requirements.txt           # Python dependencies
-├── reqUpdate.py               # Requirements updater
+├── reqUpdate.py               # Script used by squid for update requests handling details
 ├── README.md                  # This file
 ├── QUICKSTART.md              # Quick start guide
 ├── CHANGELOG.md               # Version history
