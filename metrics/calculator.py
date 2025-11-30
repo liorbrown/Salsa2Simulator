@@ -1,7 +1,5 @@
 """Metrics calculation functions for classification performance analysis."""
-from typing import Dict, List, Tuple
-
-from cache.registry import get_all_caches, get_cache_names
+from typing import List
 from ui.repository import UIRepository
 
 

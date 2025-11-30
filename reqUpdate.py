@@ -4,7 +4,6 @@ import sys
 import sqlite3
 from zoneinfo import ZoneInfo
 from database.db_access import DBAccess
-from cache.registry import get_index_by_name
 
 DEBUG_MODE = False
 
