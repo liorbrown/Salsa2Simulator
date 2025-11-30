@@ -35,7 +35,6 @@ salsa2.config
 !squid.conf.example
 
 # Cache and temporary files
-cache/
 digest_stats
 httpSites
 *.tmp
