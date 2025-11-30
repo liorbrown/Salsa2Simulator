@@ -7,7 +7,6 @@ from typing import List, Tuple
 from database.db_access import DBAccess
 # cache registry functions are imported locally in methods to avoid name shadowing
 
-
 class UIRepository:
     """Repository pattern for UI data access."""
     

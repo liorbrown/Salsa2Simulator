@@ -1,5 +1,5 @@
 """Display and UI functions for Salsa2 Simulator."""
-from typing import Dict, List, Iterable, Tuple
+from typing import List, Iterable, Tuple
 from prettytable import PrettyTable
 
 from cache.cache_manager import get_cost, get_miss_cost

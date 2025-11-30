@@ -1,7 +1,6 @@
 """Cache management logic for Salsa2 Simulator."""
 import os
 import re
-import sqlite3
 import requests
 
 DEBUG_MODE = False

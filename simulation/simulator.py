@@ -7,7 +7,7 @@ from typing import Tuple, Optional
 
 from config.config import MyConfig
 from database.db_access import DBAccess
-from cache.cache_manager import is_squid_up, get_cost
+from cache.cache_manager import is_squid_up
 from http_requests.request_executor import execute_req
 from ui.display import show_runs
 
