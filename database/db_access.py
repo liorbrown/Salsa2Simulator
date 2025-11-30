@@ -13,7 +13,8 @@ class DBAccess:
     def open():
         """Open a database connection if not already open."""
         if not DBAccess.conn:
-            DBAccess.conn = sqlite3.connect(MyConfig.db_file)
+            config = MyConfig()
+            DBAccess.conn = sqlite3.connect(config.get_key('db_file'))
             DBAccess.cursor = DBAccess.conn.cursor()
 
     @staticmethod

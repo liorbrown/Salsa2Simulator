@@ -4,7 +4,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
 
-from config.config import MyConfig, get_ca_bundle
+from config.config import MyConfig
 from database.db_access import DBAccess
 
 
@@ -21,11 +21,16 @@ def get_proxies_for_cache(http_host: str | None = None) -> dict:
     Returns:
         dict: Proxies mapping with 'http' and 'https' keys
     """
-    http_proxy = (f'http://{http_host}:{MyConfig.squid_port}' if http_host
-                  else (MyConfig.http_proxy if getattr(MyConfig, 'http_proxy', None) 
+    config = MyConfig()
+    squid_port = config.get_key('squid_port')
+    http_proxy_config = config.get_key('http_proxy')
+    https_proxy_config = config.get_key('https_proxy')
+    
+    http_proxy = (f'http://{http_host}:{squid_port}' if http_host
+                  else (http_proxy_config if http_proxy_config
                         else 'http://127.0.0.1:3128'))
 
-    https_proxy = (MyConfig.https_proxy if getattr(MyConfig, 'https_proxy', None) 
+    https_proxy = (https_proxy_config if https_proxy_config
                    else 'http://192.168.10.1:8888')
 
     return {
@@ -58,14 +63,16 @@ def execute_req(url: str, run_id: int):
         # Need to close connection before continuing because squid needs to update DB
         DBAccess.conn.commit()
         DBAccess.close()
-
+        config = MyConfig()
+        ca_bundle = config.get_key('ca_bundle')
+        
         # Execute requests through the configured proxies.
         # For HTTPS we enable verification using the configured CA bundle so Fiddler's root is trusted.
         # NOTE: requests will ignore the `verify` argument for plain HTTP URLs.
         # Disable automatic redirect following to maintain full control over what gets sent
         # and prevent duplicate requests in Squid logs
         response = requests.get(url, proxies=PROXIES, timeout=10, 
-                              verify=get_ca_bundle(), allow_redirects=False)
+                              verify=ca_bundle, allow_redirects=False)
 
         # Reopen DB 
         DBAccess.open()       
