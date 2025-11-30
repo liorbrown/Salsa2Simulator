@@ -154,10 +154,10 @@ def get_request_result(req_id: int):
     """
     try:
         from database.db_access import DBAccess
-        from cache.registry import get_name_by_index, get_access_cost_by_index, get_miss_cost
+        from cache.registry import get_access_cost, get_miss_cost
 
         DBAccess.cursor.execute("""
-            SELECT cache_id, resolution, accessed, indication
+            SELECT cache_name, resolution, accessed, indication
             FROM CacheReq
             WHERE req_id = ? AND accessed = 1
             LIMIT 1
@@ -167,11 +167,11 @@ def get_request_result(req_id: int):
         if not row:
             return None, None
 
-        cache_id, resolution, accessed, indication = row
+        cache_name, resolution, accessed, indication = row
 
         if resolution:
-            name = get_name_by_index(cache_id) or "unknown"
-            cost = get_access_cost_by_index(cache_id)
+            name = cache_name
+            cost = get_access_cost(cache_name)
         else:
             name = "miss"
             cost = get_miss_cost()

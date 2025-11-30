@@ -13,7 +13,7 @@ from datetime import datetime
 
 from database.db_access import DBAccess
 from cache.cache_manager import fill_caches, show_caches
-from ui.display import show_runs, show_traces, show_requests
+from ui.display import show_all_runs, show_runs, show_traces, show_requests
 from http_requests.request_executor import execute_single_req
 from simulation.simulator import run_trace
 
@@ -59,7 +59,7 @@ def main():
                 continue
             
             if opp_code == 1:
-                show_runs()
+                show_all_runs()
             elif opp_code == 2:
                 show_traces()
             elif opp_code == 3:
@@ -70,7 +70,7 @@ def main():
                 run_trace()
             elif opp_code == 6:
                 show_caches()
-            elif opp_code != 0:
+            elif opp_code:
                 print("Invalid option, please choose a valid number.")
 
         print("ByeBye")

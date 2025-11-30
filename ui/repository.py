@@ -12,17 +12,24 @@ class UIRepository:
     """Repository pattern for UI data access."""
     
     @staticmethod
-    def get_all_runs() -> List[Tuple]:
+    def get_runs(run_id) -> List[Tuple]:
         """Get all runs with trace information.
         
         Returns:
-            List of tuples: (run_id, name, start_time, end_time, trace_name)
+            List of tuples: (run_id, name, start_time, end_time, salsa_v, miss_penalty, trace_name)
         """
-        DBAccess.cursor.execute("""
-            SELECT RUN.id, RUN.Name, RUN.Start_Time, RUN.End_Time, T.Name
-            FROM Runs RUN 
-            JOIN Traces T ON RUN.Trace_ID = T.id
-        """)
+
+        if run_id:
+            run_filter = f" AND RUN.id = {run_id}"
+        else:
+            run_filter = " GROUP BY RUN.id"
+
+        DBAccess.cursor.execute(f"""
+            SELECT RUN.id, RUN.Name, RUN.Start_Time, RUN.End_Time, RUN.salsa_v, RUN.miss_penalty, COUNT(*), T.Name
+            FROM Runs RUN JOIN Traces T 
+            ON RUN.Trace_ID = T.id
+            JOIN Caches C ON RUN.id = C.Run_ID {run_filter}""")
+
         return DBAccess.cursor.fetchall()
     
     @staticmethod
@@ -99,30 +106,15 @@ class UIRepository:
         """
         # Query CacheReq rows and map cache_id -> name/access_cost using registry
         DBAccess.cursor.execute("""
-            SELECT indication, accessed, resolution, cache_id
-            FROM CacheReq
-            WHERE req_id = ?
-        """, [req_id])
+            SELECT indication, accessed, resolution, C.Name, C.Access_Cost
+            FROM CacheReq CR JOIN Caches C
+            ON CR.cache_name = C.Name 
+            JOIN Requests R ON CR.req_id = R.id
+            WHERE req_id = ? AND C.run_id = R.Run_ID""", [req_id])
 
         rows = DBAccess.cursor.fetchall()
 
-        # Map cache_id to registry name and cost for each row
-        from cache.registry import get_name_by_index, get_access_cost_by_index, get_miss_cost
-
-        mapped = []
-        for indication, accessed, resolution, cache_id in rows:
-            # If cache_id is present, map to real cache name; otherwise treat as a miss penalty row
-            if cache_id:
-                name = get_name_by_index(cache_id) or "unknown"
-                access_cost = get_access_cost_by_index(cache_id)
-            else:
-                # No cache_id indicates a miss/penalty entry in older DBs; keep explicit 'miss'
-                name = "miss"
-                access_cost = get_miss_cost()
-
-            mapped.append((indication, accessed, resolution, name, access_cost))
-
-        return mapped
+        return rows
     
     @staticmethod
     def get_recent_requests(count: int) -> List[Tuple]:

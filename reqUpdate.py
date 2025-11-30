@@ -51,19 +51,6 @@ def getReqID(URL : str):
         else:
             return req_data[0] # Return the request ID if it's within the last 60 seconds.
 
-def getCacheID(name : str):
-    """
-    Retrieves the ID of a cache from the 'Caches' table based on its name.
-
-    Args:
-        name (str): The name of the cache to search for.
-
-    Returns:
-        int: The ID of the cache.
-    """
-    # Map the cache name to a DB-style 1-based index using the volatile registry
-    return get_index_by_name(name)
-
 if __name__ == "__main__":
     # Get the command-line arguments, excluding the script name.
     args = sys.argv[1:]
@@ -113,19 +100,12 @@ if __name__ == "__main__":
                 for c in range(1, n, 4):
                     # The current argument is expected to be the cache name.
                     cache_name = args[c]
-                    # Retrieve the cache ID using the getCacheID function.
-                    cache_id = getCacheID(cache_name)
-
-                    # Check if a valid cache ID was found.
-                    if (not cache_id):
-                        log_msg(f"Cache {cache_name} not found!")
-                        exit # Exit the script if a cache is not found.
 
                     # Execute an SQL INSERT statement to add a new entry into the 'CacheReq' table.
                     DBAccess.cursor.execute("""INSERT INTO CacheReq
-                                        (req_id, cache_id, indication, accessed, resolution)
+                                        (req_id, cache_name, indication, accessed, resolution)
                                         VALUES (?,?,?,?,?)""",
-                                    [req_id, cache_id, args[c+1], args[c+2], args[c+3]])
+                                    [req_id, cache_name, args[c+1], args[c+2], args[c+3]])
                 # Commit the changes made to the database.
                 DBAccess.conn.commit()
 

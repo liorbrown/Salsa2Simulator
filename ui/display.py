@@ -13,26 +13,8 @@ def show_run(run_id: int):
         rows = UIRepository.get_run_requests(run_id)
         show_requests_details(rows)
 
-
-def show_runs():
-    """Fetches and displays all entries in the 'Runs' table."""
-    runs = UIRepository.get_all_runs()
-    
-    # Display the data in a table format using PrettyTable
-    table = PrettyTable()
-    table.field_names = ['ID', 'Name', 'Start Time', 'End Time', 'Trace Name', 'Requests', 'Total Cost', 'Average Cost']
-    
-    # Process each run
-    for run in runs:
-        cost, reqNum = get_cost(run[0])
-        if reqNum:
-            avg_cost = round(cost / reqNum, 3)
-        else:
-            avg_cost = 0.0
-        row = [run[0], run[1], run[2], run[3], run[4], reqNum, cost, avg_cost]
-        table.add_row(row)
-    
-    print(table)
+def show_all_runs():
+    show_runs()
 
     try:
         run_id = int(input("""Choose run ID to see his requests, or 0 to go back to main menu: """))
@@ -45,6 +27,37 @@ def show_runs():
 
     show_run(run_id)
 
+
+def show_runs(run_id = None):
+    """Fetches and displays all entries in the 'Runs' table."""
+    runs = UIRepository.get_runs(run_id)
+    
+    # Display the data in a table format using PrettyTable
+    table = PrettyTable()
+    table.field_names = [
+        'ID',
+        'Name',
+        'Salsa V',
+        'Miss Cost',
+        'nCaches',
+        'Trace',
+        'Requests',
+        'Total Cost',
+        'Average Cost']
+    
+    # Process each run
+    for run_id, name, start_time, end_time, salsa_v, miss_penalty, caches_count, trace_name in runs:
+        cost, reqNum = get_cost(run_id)
+        if reqNum:
+            avg_cost = round(cost / reqNum, 3)
+        else:
+            avg_cost = None
+
+        row = run_id, name, salsa_v, miss_penalty, caches_count, trace_name, reqNum, cost, avg_cost
+
+        table.add_row(row)
+    
+    print(table)
 
 def show_keys(trace_id):    
     """
