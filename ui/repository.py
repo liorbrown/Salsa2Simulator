@@ -138,3 +138,15 @@ class UIRepository:
         rows = DBAccess.cursor.fetchall()
         rows.reverse()  # Reverse to get chronological order
         return rows
+
+    @staticmethod
+    def get_caches(run_id):
+        DBAccess.cursor.execute(
+            """SELECT Name, Access_Cost
+            FROM Caches
+            WHERE Run_ID = ?""", [run_id]
+        )
+
+        results = DBAccess.cursor.fetchall()
+
+        return results

@@ -11,7 +11,7 @@ def show_run(run_id: int):
     """Display details of a specific run."""
     if run_id:
         rows = UIRepository.get_run_requests(run_id)
-        show_requests_details(rows)
+        show_requests_details(rows, run_id)
 
 def show_all_runs():
     show_runs()
@@ -115,9 +115,9 @@ def show_traces():
         show_keys(trace_id)
 
 
-def print_accuracy(cachesDict: Dict[str, List[int]]) -> None:
+def print_accuracy(cachesDict) -> None:
     """Print accuracy metrics table."""
-    column_names = ['Name', 'Accuracy', 'Recall', 'Precision', 'F1 Score']
+    column_names = ['Name', 'Accuracy', 'Recall', 'Precision', 'F1 Score', 'Cost']
 
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
@@ -128,23 +128,25 @@ def print_accuracy(cachesDict: Dict[str, List[int]]) -> None:
     print(table)
 
 
-def show_requests_details(requests: Iterable[Tuple]) -> None:
+def show_requests_details(requests: Iterable[Tuple], run_id = None) -> None:
     """Display detailed information about requests with classification metrics."""
     table = PrettyTable()
-    table.field_names = ['ReqID', 'Time', 'URL', 'Indications', 'Accessed', 'Resolution', 'Hit?', 'Cost']
+    table.field_names = ['ReqID', 'URL', 'Indications', 'Accessed', 'Resolution', 'Hit?', 'Cost']
 
-    cachesDict: Dict[str, List[int]] = create_caches_dict()
+    if run_id:
+        cachesDict = create_caches_dict(run_id)
 
     for req in requests:
-        req_id, req_time, req_url = req[0], req[1], req[2]
+        req_id, req_url = req[0], req[2]
 
         # Analyze request caches and get metrics + details
-        req_caches_dict, details = analyze_request_caches(req_id)
+        req_caches_dict, details = analyze_request_caches(req_id, run_id)
         
-        # Merge metrics from this request into overall dictionary
-        for cache_name in req_caches_dict:
-            for i in range(4):
-                cachesDict[cache_name][i] += req_caches_dict[cache_name][i]
+        if run_id:
+            # Merge metrics from this request into overall dictionary
+            for cache_name in req_caches_dict:
+                for i in range(4):
+                    cachesDict[cache_name][i] += req_caches_dict[cache_name][i]
         
         # Handle miss cost
         cost = details['cost']
@@ -156,7 +158,6 @@ def show_requests_details(requests: Iterable[Tuple]) -> None:
 
         table.add_row([
             req_id,
-            req_time, 
             req_url, 
             fmt(details['indicated']), 
             fmt(details['accessed']),
@@ -166,7 +167,9 @@ def show_requests_details(requests: Iterable[Tuple]) -> None:
         ])
 
     print(table)
-    print_accuracy(cachesDict)
+
+    if run_id:
+        print_accuracy(cachesDict)
 
 
 def show_requests():
