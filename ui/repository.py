@@ -11,25 +11,64 @@ class UIRepository:
     """Repository pattern for UI data access."""
     
     @staticmethod
-    def get_runs(run_id) -> List[Tuple]:
+    def get_runs_by_id(run_id) -> List[Tuple]:
+        """Get all runs with trace information.
+        
+        Args:
+            run_id: The run ID
+
+        Returns:
+            List of tuples: (run_id, name, start_time, end_time, salsa_v, miss_penalty, trace_name)
+        """
+
+        DBAccess.cursor.execute(f"""
+            SELECT 
+                RUN.id, 
+                RUN.Name, 
+                RUN.Start_Time, 
+                RUN.End_Time, 
+                RUN.salsa_v, 
+                RUN.miss_penalty, 
+                COUNT(*), 
+                T.Name
+            FROM Runs RUN JOIN Traces T 
+            ON RUN.Trace_ID = T.id
+            JOIN Caches C ON RUN.id = C.Run_ID 
+            AND RUN.id = ?""", [run_id])
+
+        return DBAccess.cursor.fetchall()
+    
+    @staticmethod
+    def get_runs(limit) -> List[Tuple]:
         """Get all runs with trace information.
         
         Returns:
             List of tuples: (run_id, name, start_time, end_time, salsa_v, miss_penalty, trace_name)
         """
 
-        if run_id:
-            run_filter = f" AND RUN.id = {run_id}"
-        else:
-            run_filter = " GROUP BY RUN.id"
-
         DBAccess.cursor.execute(f"""
-            SELECT RUN.id, RUN.Name, RUN.Start_Time, RUN.End_Time, RUN.salsa_v, RUN.miss_penalty, COUNT(*), T.Name
+            SELECT 
+                RUN.id, 
+                RUN.Name, 
+                RUN.Start_Time, 
+                RUN.End_Time, 
+                RUN.salsa_v, 
+                RUN.miss_penalty, 
+                COUNT(*), 
+                T.Name
             FROM Runs RUN JOIN Traces T 
             ON RUN.Trace_ID = T.id
-            JOIN Caches C ON RUN.id = C.Run_ID {run_filter}""")
+            JOIN Caches C ON RUN.id = C.Run_ID 
+            GROUP BY RUN.id
+            ORDER BY RUN.id DESC
+            LIMIT ?""", [limit])
 
-        return DBAccess.cursor.fetchall()
+        result = DBAccess.cursor.fetchall()
+
+        if result:
+            result.reverse()
+        
+        return result
     
     @staticmethod
     def get_run_requests(run_id: int) -> List[Tuple]:

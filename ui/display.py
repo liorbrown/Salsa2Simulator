@@ -14,23 +14,41 @@ def show_run(run_id: int):
         show_requests_details(rows, run_id)
 
 def show_all_runs():
-    show_runs()
-
-    try:
-        run_id = int(input("""Choose run ID to see his requests, or 0 to go back to main menu: """))
-        if run_id < 0:
-            print("Error: Run ID cannot be negative.")
+    if show_runs():
+        try:
+            run_id = int(input("""Choose run ID to see his requests, or 0 to go back to main menu: """))
+            if run_id < 0:
+                print("Error: Run ID cannot be negative.")
+                return
+        except ValueError:
+            print("Error: Please enter a valid number for run ID.")
             return
-    except ValueError:
-        print("Error: Please enter a valid number for run ID.")
-        return
 
-    show_run(run_id)
-
+        show_run(run_id)
 
 def show_runs(run_id = None):
-    """Fetches and displays all entries in the 'Runs' table."""
-    runs = UIRepository.get_runs(run_id)
+
+    if run_id:
+        """Fetches and displays all entries in the 'Runs' table."""
+        runs = UIRepository.get_runs_by_id(run_id)
+    else:
+        while True:
+            try:
+                limit = int(input("How much runs you want to see? "))
+
+                if limit <= 0:
+                    print("Wrong input🤨, please enter positive integer")
+                else:
+                    runs = UIRepository.get_runs(limit)
+                    break
+
+            except Exception as e:
+                print(e)
+                print("Wrong input🤨, please enter positive integer")
+    
+    if not runs:
+        print("No runs found")
+        return False
     
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
@@ -42,7 +60,6 @@ def show_runs(run_id = None):
         'nCaches',
         'Trace',
         'Requests',
-        'Total Cost',
         'Average Cost']
     
     # Process each run
@@ -53,11 +70,13 @@ def show_runs(run_id = None):
         else:
             avg_cost = None
 
-        row = run_id, name, salsa_v, miss_penalty, caches_count, trace_name, reqNum, cost, avg_cost
+        row = run_id, name, salsa_v, miss_penalty, caches_count, trace_name, reqNum, avg_cost
 
         table.add_row(row)
     
     print(table)
+
+    return True
 
 def show_keys(trace_id):    
     """
