@@ -35,7 +35,7 @@ class MyConfig:
     def get_key(self, key):
         """Get a configuration value by key."""
         self._load_config()
-        return self.config_mapping[key]
+        return self.config_mapping.get(key)
     
     def set_key(self, key, value):
         """Set a configuration value by key."""

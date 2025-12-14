@@ -13,8 +13,7 @@ from config.config import MyConfig
 from database.db_access import DBAccess
 from cache.registry import (
     load_caches as load_caches_to_registry, 
-    set_miss_cost, 
-    get_miss_cost,
+    set_miss_cost,
     set_salsa2_v)
 
 def clear_cache(remote_ip):
@@ -125,45 +124,6 @@ def is_squid_up():
     except Exception as e:
         log_msg(f"proxy request failed: {e}")
         return False
-
-
-def get_cost(run_id: int):
-    """
-    Calculate the total cost and request count for a run.
-    
-    Args:
-        run_id: The ID of the run
-        
-    Returns:
-        list: [total_cost, request_count]
-    """
-    # Select all requests that accessed
-    DBAccess.cursor.execute("""SELECT DISTINCT R.id
-                      FROM Requests R JOIN CacheReq CR
-                      ON R.id = CR.req_id
-                      WHERE R.run_id = ? AND CR.accessed = 1""", [run_id])
-    
-    requests = DBAccess.cursor.fetchall()
-    req_count = len(requests)
-    total_cost = 0
-
-    for request, in requests:
-        # Select sum of cost and resolution of all accessed caches
-        DBAccess.cursor.execute(
-            """SELECT SUM(CR.resolution), SUM(C.Access_Cost)
-            FROM CacheReq CR JOIN Caches C
-            ON CR.cache_name = C.Name
-            WHERE CR.req_id = ? AND CR.accessed = 1 AND C.run_id=?""", [request, run_id])
-        
-        resolutions, cost = DBAccess.cursor.fetchone()
-
-        if resolutions is None:
-            return None, None
-            
-        # Total cost is costs sum + miss cost if no resolution found for accessed caches
-        total_cost += cost + (1 - min(1, resolutions)) * get_miss_cost()
-        
-    return [total_cost, req_count]
 
 
 def show_caches():

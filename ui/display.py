@@ -1,17 +1,13 @@
 """Display and UI functions for Salsa2 Simulator."""
-from typing import List, Iterable, Tuple
 from prettytable import PrettyTable
-
-from cache.cache_manager import get_cost, get_miss_cost
 from ui.repository import UIRepository
-from metrics.calculator import create_caches_dict, classification_metrics, analyze_request_caches
 
 
 def show_run(run_id: int):
     """Display details of a specific run."""
     if run_id:
-        rows = UIRepository.get_run_requests(run_id)
-        show_requests_details(rows, run_id)
+        requests = UIRepository.get_run_requests(run_id)
+        print_requests(requests)
 
 def show_all_runs():
     if show_runs():
@@ -26,31 +22,42 @@ def show_all_runs():
 
         show_run(run_id)
 
-def show_runs(run_id = None):
 
-    if run_id:
-        """Fetches and displays all entries in the 'Runs' table."""
-        runs = UIRepository.get_runs_by_id(run_id)
-    else:
-        while True:
-            try:
-                limit = int(input("How much runs you want to see? "))
+def get_limit():
+    """
+    Prompt the user to enter a positive integer for the number of runs to display.
+    
+    Continuously prompts until a valid positive integer is provided.
+    
+    Returns:
+        int: The number of runs the user wants to see (positive integer).
+    """
+    while True:
+        try:
+            limit = int(input("How much runs you want to see? "))
 
-                if limit <= 0:
-                    print("Wrong input🤨, please enter positive integer")
-                else:
-                    runs = UIRepository.get_runs(limit)
-                    break
-
-            except Exception as e:
-                print(e)
+            if limit <= 0:
                 print("Wrong input🤨, please enter positive integer")
+            else:
+                return limit
+
+        except Exception as e:
+            print(e)
+            print("Wrong input🤨, please enter positive integer")
+
+
+def display_runs_table(runs):
+    """
+    Display runs data in a formatted PrettyTable.
     
-    if not runs:
-        print("No runs found")
-        return False
+    Creates and prints a table with run details including ID, name, version,
+    costs, and performance metrics.
     
-    # Display the data in a table format using PrettyTable
+    Args:
+        runs: Iterable of run tuples from the database containing:
+              (run_id, name, start_time, end_time, salsa_v, miss_penalty, 
+               caches_count, trace_name)
+    """
     table = PrettyTable()
     table.field_names = [
         'ID',
@@ -60,22 +67,63 @@ def show_runs(run_id = None):
         'nCaches',
         'Trace',
         'Requests',
-        'Average Cost']
+        'Avg Req ms']
     
     # Process each run
-    for run_id, name, start_time, end_time, salsa_v, miss_penalty, caches_count, trace_name in runs:
-        cost, reqNum = get_cost(run_id)
-        if reqNum:
-            avg_cost = round(cost / reqNum, 3)
+    for (run_id, 
+         name, 
+         start_time, 
+         end_time, 
+         salsa_v, 
+         miss_penalty, 
+         caches_count,
+         requests_count,
+         total_time,
+         trace_name) in runs:
+        
+        if requests_count and total_time:
+            avg_time = total_time // requests_count
         else:
-            avg_cost = None
+            avg_time = None
 
-        row = run_id, name, salsa_v, miss_penalty, caches_count, trace_name, reqNum, avg_cost
+        row = (run_id, 
+               name, 
+               salsa_v, 
+               miss_penalty, 
+               caches_count, 
+               trace_name, 
+               requests_count,
+               avg_time)
 
         table.add_row(row)
     
     print(table)
 
+
+def show_runs(run_id = None):
+    """
+    Fetch and display runs in a formatted table.
+    
+    If run_id is provided, displays details for a specific run.
+    Otherwise, prompts the user for the number of runs to display.
+    
+    Args:
+        run_id (int, optional): Specific run ID to display. If None, prompts user for limit.
+    
+    Returns:
+        bool: True if runs were found and displayed, False otherwise.
+    """
+    if run_id:
+        runs = UIRepository.get_runs_by_id(run_id)
+    else:
+        limit = get_limit()
+        runs= UIRepository.get_runs(limit)
+    
+    if not runs:
+        print("No runs found")
+        return False
+    
+    display_runs_table(runs)
     return True
 
 def show_keys(trace_id):    
@@ -134,62 +182,14 @@ def show_traces():
         show_keys(trace_id)
 
 
-def print_accuracy(cachesDict) -> None:
-    """Print accuracy metrics table."""
-    column_names = ['Name', 'Accuracy', 'Recall', 'Precision', 'F1 Score', 'Cost']
-
-    # Display the data in a table format using PrettyTable
+def print_requests(requests: list):
     table = PrettyTable()
-    table.field_names = column_names  # Set column headers
-
-    table.add_rows(classification_metrics(cachesDict))
-
+    table.field_names = ['id', 'URL', 'Elapsed (ms)']
+    
+    for request in requests:
+        table.add_row(request)
+    
     print(table)
-
-
-def show_requests_details(requests: Iterable[Tuple], run_id = None) -> None:
-    """Display detailed information about requests with classification metrics."""
-    table = PrettyTable()
-    table.field_names = ['ReqID', 'URL', 'Indications', 'Accessed', 'Resolution', 'Hit?', 'Cost']
-
-    if run_id:
-        cachesDict = create_caches_dict(run_id)
-
-    for req in requests:
-        req_id, req_url = req[0], req[2]
-
-        # Analyze request caches and get metrics + details
-        req_caches_dict, details = analyze_request_caches(req_id, run_id)
-        
-        if run_id:
-            # Merge metrics from this request into overall dictionary
-            for cache_name in req_caches_dict:
-                for i in range(4):
-                    cachesDict[cache_name][i] += req_caches_dict[cache_name][i]
-        
-        # Handle miss cost
-        cost = details['cost']
-        if not details['hit']:
-            cost += get_miss_cost()
-
-        def fmt(names: List[str]) -> str:
-            return f"[{','.join(names)}]"
-
-        table.add_row([
-            req_id,
-            req_url, 
-            fmt(details['indicated']), 
-            fmt(details['accessed']),
-            fmt(details['resolved']), 
-            details['hit'], 
-            cost
-        ])
-
-    print(table)
-
-    if run_id:
-        print_accuracy(cachesDict)
-
 
 def show_requests():
     """
@@ -206,9 +206,13 @@ def show_requests():
         return
      
     # Fetch recent requests from the database
-    req_ids = UIRepository.get_recent_requests(count)
+    requests = UIRepository.get_recent_requests(count)
 
-    show_requests_details(req_ids)
+    if not len(requests):
+        print("No requsts found")
+        return
+    
+    print_requests(requests)
 
     # After displaying recent requests, offer to re-request a URL.
     try:
@@ -217,42 +221,21 @@ def show_requests():
         print("Invalid input. Skipping re-request.")
         return
 
-    if choice == 0:
+    if not choice:
         return
 
     # Validate choice is among displayed requests
-    displayed_ids = {r[0] for r in req_ids}
+    displayed_ids = {r[0] for r in requests}
     if choice not in displayed_ids:
         print("The entered request ID was not in the displayed list.")
         return
 
-    # Use the URL already displayed in `req_ids` instead of querying the DB again.
-    try:
-        # find the selected row in the displayed results
-        selected = next((r for r in req_ids if r[0] == choice), None)
-        if not selected:
-            print("The entered request ID was not found in the displayed list.")
-            return
+    # find the selected row in the displayed results
+    url = next((r[1] for r in requests if r[0] == choice), None)
 
-        # req_ids rows are (id, time, url)
-        url = selected[2]
+    from http_requests.request_executor import execute_req
 
-        from http_requests.request_executor import execute_req, get_request_result
-
-        print(f"Re-requesting URL from request {choice}: {url}")
-        # We don't have the original Run_ID in the displayed rows; pass 0.
-        new_req = execute_req(url, 0)
-        if not new_req:
-            print("Re-request failed or no cache recorded for the URL.")
-            return
-
-        # Use centralized helper to obtain the request result
-        name, cost = get_request_result(new_req)
-        if name is None:
-            print("Re-request completed but no accessed cache row was recorded.")
-            return
-
-        print(f"Request fetched successfully from {name} at cost of {cost}")
-
-    except Exception as e:
-        print(f"Failed to re-request: {e}")
+    print(f"Re-requesting {url}")
+    
+    if execute_req(url, 0):
+        print("Request Successfuly!")

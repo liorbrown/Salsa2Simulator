@@ -48,21 +48,12 @@ def execute_req(url: str, run_id: int):
         run_id: The ID of the run associated with the request
     
     Returns:
-        int: The request ID if successful, None otherwise
+        bool: Indication for request success
     """
     # Build proxies mapping from configuration (or sensible defaults)
     PROXIES = get_proxies_for_cache()
 
     try:
-        jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
-
-        # Insert request's data into requests table
-        DBAccess.cursor.execute("""INSERT INTO Requests('Time', 'URL', 'Run_ID') 
-                        VALUES (?,?,?)""", [jerusalem_time, url, run_id])
-        
-        # Need to close connection before continuing because squid needs to update DB
-        DBAccess.conn.commit()
-        DBAccess.close()
         config = MyConfig()
         ca_bundle = config.get_key('ca_bundle')
         
@@ -73,38 +64,33 @@ def execute_req(url: str, run_id: int):
         # and prevent duplicate requests in Squid logs
         response = requests.get(url, proxies=PROXIES, timeout=10, 
                               verify=ca_bundle, allow_redirects=False)
+      
+        # Check if request success
+        if response.status_code < 300:
+          
+            elapsed_time_ms = int(response.elapsed.total_seconds() * 1000)
 
-        # Reopen DB 
-        DBAccess.open()       
+            jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
-        # Check if request failed (treat 3xx redirects as successful responses)
-        if response.status_code >= 400:
-            print(f"Request {url} error - {response.status_code}")
-
-            # Delete URL from traces entries and from Keys list (commented out)
-            # DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
-            # DBAccess.cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
-
-            DBAccess.conn.commit()
+            # Insert request's data into requests table
+            DBAccess.cursor.execute(
+                """INSERT INTO Requests('Time', 'URL', 'Run_ID', 'elapsed_ms') 
+                    VALUES (?,?,?,?)""", [jerusalem_time, url, run_id, elapsed_time_ms])
             
-            return None
-        else:    
-            DBAccess.cursor.execute("SELECT MAX(id) FROM Requests")
-            reqID = DBAccess.cursor.fetchone()[0]
+            # Need to close connection before continuing because squid needs to update DB
+            DBAccess.conn.commit()
 
-            # Return reqID
-            return reqID
+            return True
+            
+        else:    
+            print(f"Request {url} error - {response.status_code}")
+            
+            return False
         
     except Exception as e:
-        print(f"Request {url} error - {e}")
-
-        DBAccess.open()
+        print(f"Request {url} error - {e}")             
         
-        # Delete URL from traces entries and from Keys list (commented out)
-        # DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL=?",[url])
-        # DBAccess.cursor.execute("DELETE FROM Keys WHERE URL=?",[url])
-        
-        return None
+        return False
 
 
 def execute_single_req():
@@ -112,7 +98,6 @@ def execute_single_req():
     Executes a single request for a given URL and logs it into the 'Requests' table.
     Prompts the user for a URL and displays the result.
     """
-    from cache.cache_manager import get_miss_cost  # Import here to avoid circular dependency
 
     url = input("Enter URL: ").strip()
     
@@ -125,58 +110,5 @@ def execute_single_req():
         print("Error: URL must start with 'http://' or 'https://'")
         return
 
-    try:
-        # Execute request without run id
-        reqID = execute_req(url, 0)
-        if not reqID:
-            print("Request did not complete or no cache recorded for the URL.")
-            return
-
-        # Use helper to map the request -> result to keep logic centralized
-        name, cost = get_request_result(reqID)
-        if name is None:
-            print("Request completed but no accessed cache row was recorded.")
-            return
-
-        print(f"Request fetched successfully from {name} at cost of {cost}")
-
-    except sqlite3.DatabaseError as e:
-        # If request fails, print the exact error message from SQLite
-        print(f"Request failed: {e}")
-
-
-def get_request_result(req_id: int):
-    """Return (name, cost) for a request id by reading CacheReq and mapping
-    cache_id -> registry name/cost. Returns (None, None) when no accessed row
-    was recorded for the request.
-
-    This central helper avoids duplicating mapping logic in UI and CLI code.
-    """
-    try:
-        from database.db_access import DBAccess
-        from cache.registry import get_access_cost, get_miss_cost
-
-        DBAccess.cursor.execute("""
-            SELECT cache_name, resolution, accessed, indication
-            FROM CacheReq
-            WHERE req_id = ? AND accessed = 1
-            LIMIT 1
-        """, [req_id])
-
-        row = DBAccess.cursor.fetchone()
-        if not row:
-            return None, None
-
-        cache_name, resolution, accessed, indication = row
-
-        if resolution:
-            name = cache_name
-            cost = get_access_cost(cache_name)
-        else:
-            name = "miss"
-            cost = get_miss_cost()
-
-        return name, cost
-
-    except Exception:
-        return None, None
+    if execute_req(url, 0):
+        print("Request Successfuly")

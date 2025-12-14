@@ -29,12 +29,13 @@ class UIRepository:
                 RUN.End_Time, 
                 RUN.salsa_v, 
                 RUN.miss_penalty, 
-                COUNT(*), 
+                (SELECT COUNT(*) FROM Caches C WHERE RUN.id = C.Run_ID),
+                COUNT(*),
+                SUM(REQ.elapsed_MS),
                 T.Name
-            FROM Runs RUN JOIN Traces T 
-            ON RUN.Trace_ID = T.id
-            JOIN Caches C ON RUN.id = C.Run_ID 
-            AND RUN.id = ?""", [run_id])
+            FROM Runs RUN JOIN Traces T ON RUN.Trace_ID = T.id
+            JOIN Requests REQ
+            WHERE RUN.id = ? AND REQ.run_id = ?""", [run_id, run_id])
 
         return DBAccess.cursor.fetchall()
     
@@ -42,8 +43,12 @@ class UIRepository:
     def get_runs(limit) -> List[Tuple]:
         """Get all runs with trace information.
         
+        Args:
+            limit: Maximum number of runs to return
+        
         Returns:
-            List of tuples: (run_id, name, start_time, end_time, salsa_v, miss_penalty, trace_name)
+            List of tuples: (run_id, name, start_time, end_time, salsa_v, miss_penalty,
+                           cache_count, request_count, total_elapsed_ms, trace_name)
         """
 
         DBAccess.cursor.execute(f"""
@@ -54,11 +59,12 @@ class UIRepository:
                 RUN.End_Time, 
                 RUN.salsa_v, 
                 RUN.miss_penalty, 
-                COUNT(*), 
+                (SELECT COUNT(*) FROM Caches C WHERE RUN.id = C.Run_ID),
+                COUNT(*),
+                SUM(REQ.elapsed_MS),
                 T.Name
-            FROM Runs RUN JOIN Traces T 
-            ON RUN.Trace_ID = T.id
-            JOIN Caches C ON RUN.id = C.Run_ID 
+            FROM Runs RUN JOIN Traces T ON RUN.Trace_ID = T.id
+            JOIN Requests REQ ON REQ.run_id = RUN.id
             GROUP BY RUN.id
             ORDER BY RUN.id DESC
             LIMIT ?""", [limit])
@@ -80,13 +86,13 @@ class UIRepository:
         Returns:
             List of tuples: (request_id, time, url)
         """
+        
         DBAccess.cursor.execute("""
-            SELECT R.id, R.Time, R.URL
-            FROM Requests R 
-            JOIN CacheReq CR ON R.id = CR.req_id
-            WHERE R.Run_ID = ? AND CR.accessed = 1
-            GROUP BY R.id
-        """, [run_id])
+            SELECT id, URL, elapsed_ms
+            FROM Requests
+            WHERE run_id = ?
+            ORDER BY id ASC""", [run_id])
+
         return DBAccess.cursor.fetchall()
     
     @staticmethod
@@ -133,28 +139,6 @@ class UIRepository:
 
     
     @staticmethod
-    def get_request_cache_details(req_id: int) -> List[Tuple]:
-        """Get cache request details for a specific request.
-        
-        Args:
-            req_id: The request ID
-            
-        Returns:
-            List of tuples: (indication, accessed, resolution, name, access_cost)
-        """
-        # Query CacheReq rows and map cache_id -> name/access_cost using registry
-        DBAccess.cursor.execute("""
-            SELECT indication, accessed, resolution, C.Name, C.Access_Cost
-            FROM CacheReq CR JOIN Caches C
-            ON CR.cache_name = C.Name 
-            JOIN Requests R ON CR.req_id = R.id
-            WHERE req_id = ? AND C.run_id = R.Run_ID""", [req_id])
-
-        rows = DBAccess.cursor.fetchall()
-
-        return rows
-    
-    @staticmethod
     def get_recent_requests(count: int) -> List[Tuple]:
         """Get the most recent requests with cache data.
         
@@ -162,19 +146,17 @@ class UIRepository:
             count: Number of recent requests to fetch
             
         Returns:
-            List of tuples: (request_id, time, url)
+            List of tuples: (url, elapsed_ms)
         """
         DBAccess.cursor.execute("""
-            SELECT R.id, R.Time, R.URL
-            FROM Requests R 
-            JOIN CacheReq CR ON R.id = CR.req_id
-            WHERE CR.accessed = 1
-            GROUP BY R.id
-            ORDER BY R.Time DESC 
+            SELECT id, URL, elapsed_ms
+            FROM Requests
+            ORDER BY id DESC 
             LIMIT ?
         """, [count])
         rows = DBAccess.cursor.fetchall()
         rows.reverse()  # Reverse to get chronological order
+
         return rows
 
     @staticmethod

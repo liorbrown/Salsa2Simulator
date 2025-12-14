@@ -56,22 +56,6 @@ def _ensure_loaded() -> None:
         pass
 
 
-def get_cache(name: str) -> Optional[Dict[str, any]]:
-    """
-    Get a cache by name from the registry.
-    
-    Args:
-        name: Cache name to retrieve
-        
-    Returns:
-        Dictionary with 'ip' and 'access_cost' keys, or None if not found
-    """
-    _ensure_loaded()
-    config = MyConfig()
-    caches_registry = config.get_key('caches') or {}
-    return caches_registry.get(name)
-
-
 def get_all_caches() -> Dict[str, Dict[str, any]]:
     """
     Get all cached configurations.
@@ -83,36 +67,6 @@ def get_all_caches() -> Dict[str, Dict[str, any]]:
     config = MyConfig()
     caches_registry = config.get_key('caches') or {}
     return caches_registry.copy()
-
-
-def get_access_cost(cache_name: str) -> int:
-    """
-    Get the access cost for a specific cache.
-    
-    Args:
-        cache_name: Name of the cache
-        default: Default cost if cache not found
-        
-    Returns:
-        Access cost for the cache, or default value
-    """
-    cache = get_cache(cache_name)
-    if cache:
-        return cache['access_cost']
-    
-    return None
-
-
-def get_miss_cost() -> int:
-    """
-    Get the cost for a cache miss (penalty).
-    
-    Returns:
-        Configured miss penalty (defaults to 25)
-    """
-    config = MyConfig()
-    miss_cost = config.get_key('miss_penalty')
-    return miss_cost if miss_cost is not None else 25
 
 
 def set_miss_cost(cost: int) -> None:
@@ -128,15 +82,15 @@ def set_miss_cost(cost: int) -> None:
         # Keep previous value on invalid input
         pass
 
-def set_salsa2_v(cost: int) -> None:
-    """Set the miss penalty cost used when computing total costs.
+def set_salsa2_v(salsa_v: int) -> None:
+    """Set salsa2 version.
 
     Args:
         cost: Numeric penalty cost for misses
     """
     config = MyConfig()
     try:
-        config.set_key('salsa2_v', int(cost))
+        config.set_key('salsa2_v', int(salsa_v))
     except (TypeError, ValueError):
         # Keep previous value on invalid input
         pass

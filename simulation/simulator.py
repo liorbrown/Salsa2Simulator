@@ -129,6 +129,21 @@ def _create_run_entry(name: str, trace_id: int) -> Optional[int]:
         return None
 
 
+def _update_run(run_id: int):
+    """Update the end time for a completed run.
+    
+    Args:
+        run_id: ID of the run to update
+    """
+    jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
+
+    # Update run entry with end time
+    DBAccess.cursor.execute("""UPDATE Runs
+    SET End_Time = ?
+    WHERE id = ?""", [jerusalem_time, run_id])
+
+    DBAccess.conn.commit()
+
 def _execute_requests(run_id: int, trace_id: int, limit: int) -> bool:
     """Execute all requests for the trace.
     
@@ -149,21 +164,13 @@ def _execute_requests(run_id: int, trace_id: int, limit: int) -> bool:
         for row in rows:
             # If requests succeed and there is limit, 
             # decrease limit and check if reach it
-            req_id = execute_req(row[0], run_id)
-
-            if req_id and limit > 0:
+            if execute_req(row[0], run_id) and limit > 0:                
                 limit -= 1
+
                 if not limit:
                     break
 
-        jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
-
-        # Update run entry with end time
-        DBAccess.cursor.execute("""UPDATE Runs
-        SET End_Time = ?
-        WHERE id = ?""", [jerusalem_time, run_id])
-
-        DBAccess.conn.commit()
+        _update_run(run_id)
         return True
         
     except sqlite3.DatabaseError as e:
@@ -207,6 +214,7 @@ def run_trace():
         
         # Execute all requests
         if not _execute_requests(run_id, trace_id, limit):
+            print(f"Trace failed")
             return
         
         # Display results
