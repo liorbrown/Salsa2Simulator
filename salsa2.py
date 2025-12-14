@@ -13,7 +13,7 @@ from datetime import datetime
 
 from database.db_access import DBAccess
 from cache.cache_manager import fill_caches, show_caches
-from ui.display import show_all_runs, show_runs, show_traces, show_requests
+from ui.display import show_all_runs, show_traces, show_requests
 from http_requests.request_executor import execute_single_req
 from simulation.simulator import run_trace
 
