@@ -65,6 +65,7 @@ def display_runs_table(runs):
         'Salsa V',
         'Miss Cost',
         'nCaches',
+        'Uniformed',
         'Trace',
         'Requests',
         'Avg Req ms']
@@ -77,23 +78,22 @@ def display_runs_table(runs):
          salsa_v, 
          miss_penalty, 
          caches_count,
+         costs_count,
          requests_count,
-         total_time,
+         avg_time,
          trace_name) in runs:
         
-        if requests_count and total_time:
-            avg_time = total_time // requests_count
-        else:
-            avg_time = None
-
+        avg_time_int = int(avg_time) if avg_time else None
+        
         row = (run_id, 
                name, 
                salsa_v, 
                miss_penalty, 
-               caches_count, 
+               caches_count,
+               costs_count == 1,
                trace_name, 
                requests_count,
-               avg_time)
+               avg_time_int)
 
         table.add_row(row)
     

@@ -29,13 +29,19 @@ class UIRepository:
                 RUN.End_Time, 
                 RUN.salsa_v, 
                 RUN.miss_penalty, 
-                (SELECT COUNT(*) FROM Caches C WHERE RUN.id = C.Run_ID),
+                caches.count,
+                caches.cost,
                 COUNT(*),
-                SUM(REQ.elapsed_MS),
+                SUM(REQ.elapsed_ms),
                 T.Name
             FROM Runs RUN JOIN Traces T ON RUN.Trace_ID = T.id
             JOIN Requests REQ
-            WHERE RUN.id = ? AND REQ.run_id = ?""", [run_id, run_id])
+            LEFT JOIN (
+                SELECT COUNT(*) count, COUNT(DISTINCT Access_Cost) cost
+                FROM Caches
+                WHERE Run_ID = ?
+            ) caches
+            WHERE RUN.id = ? AND REQ.run_id = ?""", [run_id, run_id, run_id])
 
         return DBAccess.cursor.fetchall()
     
@@ -57,14 +63,20 @@ class UIRepository:
                 RUN.Name, 
                 RUN.Start_Time, 
                 RUN.End_Time, 
-                RUN.salsa_v, 
+                RUN.salsa_v,
                 RUN.miss_penalty, 
-                (SELECT COUNT(*) FROM Caches C WHERE RUN.id = C.Run_ID),
+                caches.count,
+                caches.cost,
                 COUNT(*),
-                SUM(REQ.elapsed_MS),
+                AVG(REQ.elapsed_ms),
                 T.Name
             FROM Runs RUN JOIN Traces T ON RUN.Trace_ID = T.id
             JOIN Requests REQ ON REQ.run_id = RUN.id
+            LEFT JOIN (
+                SELECT Run_ID, COUNT(*) count, COUNT(DISTINCT Access_Cost) cost
+                FROM Caches
+                GROUP BY Run_ID
+            ) caches ON caches.Run_ID = RUN.id
             GROUP BY RUN.id
             ORDER BY RUN.id DESC
             LIMIT ?""", [limit])
