@@ -68,7 +68,8 @@ def display_runs_table(runs):
         'Uniformed',
         'Trace',
         'Requests',
-        'Avg Req ms']
+        'Avg time (ms)',
+        'Avg size (bytes)']
     
     # Process each run
     for (run_id, 
@@ -81,9 +82,11 @@ def display_runs_table(runs):
          costs_count,
          requests_count,
          avg_time,
+         avg_size,
          trace_name) in runs:
         
         avg_time_int = int(avg_time) if avg_time else None
+        avg_size_int = int(avg_size) if avg_size else None
         
         row = (run_id, 
                name, 
@@ -93,7 +96,8 @@ def display_runs_table(runs):
                costs_count == 1,
                trace_name, 
                requests_count,
-               avg_time_int)
+               avg_time_int,
+               avg_size_int)
 
         table.add_row(row)
     
@@ -184,7 +188,7 @@ def show_traces():
 
 def print_requests(requests: list):
     table = PrettyTable()
-    table.field_names = ['id', 'URL', 'Elapsed (ms)']
+    table.field_names = ['id', 'URL', 'Elapsed (ms)', 'Download Bytes']
     
     for request in requests:
         table.add_row(request)

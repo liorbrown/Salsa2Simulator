@@ -32,7 +32,8 @@ class UIRepository:
                 caches.count,
                 caches.cost,
                 COUNT(*),
-                SUM(REQ.elapsed_ms),
+                AVG(REQ.elapsed_ms),
+                AVG(REQ.download_bytes),
                 T.Name
             FROM Runs RUN JOIN Traces T ON RUN.Trace_ID = T.id
             JOIN Requests REQ
@@ -69,6 +70,7 @@ class UIRepository:
                 caches.cost,
                 COUNT(*),
                 AVG(REQ.elapsed_ms),
+                AVG(REQ.download_bytes),
                 T.Name
             FROM Runs RUN JOIN Traces T ON RUN.Trace_ID = T.id
             JOIN Requests REQ ON REQ.run_id = RUN.id
@@ -100,7 +102,7 @@ class UIRepository:
         """
         
         DBAccess.cursor.execute("""
-            SELECT id, URL, elapsed_ms
+            SELECT id, URL, elapsed_ms, download_bytes
             FROM Requests
             WHERE run_id = ?
             ORDER BY id ASC""", [run_id])
@@ -161,9 +163,9 @@ class UIRepository:
             List of tuples: (url, elapsed_ms)
         """
         DBAccess.cursor.execute("""
-            SELECT id, URL, elapsed_ms
+            SELECT id, URL, elapsed_ms, download_bytes
             FROM Requests
-            ORDER BY id DESC 
+            ORDER BY id DESC
             LIMIT ?
         """, [count])
         rows = DBAccess.cursor.fetchall()

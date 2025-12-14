@@ -38,6 +38,62 @@ def get_proxies_for_cache(http_host: str | None = None) -> dict:
         'https': https_proxy,
     }
 
+def is_hit(response):
+    cache_status = response.headers.get('Cache-Status')
+    print(cache_status)
+    return cache_status and 'hit' in cache_status
+
+
+def calculate_download_bytes(response) -> int:
+    """Calculate the download size for a request for comparison purposes.
+    
+    This function determines the data size associated with a request based on
+    whether it was served from cache or fetched from the origin server. The
+    measurement is consistent across all requests, making it suitable for
+    comparing different caching algorithms.
+    
+    Args:
+        response: The requests.Response object (downloaded normally, not streamed)
+    
+    Returns:
+        int: Download size in bytes:
+            - 0 if cache hit (no internet access, served from local cache)
+            - headers + body size if cache miss (full download from origin)
+    
+    How it works:
+        Cache HIT:
+            - Detected via 'Cache-Status' header containing 'hit'
+            - Content served directly from cache
+            - No internet traffic, no bytes downloaded
+            - Returns: 0
+        
+        Cache MISS:
+            - Content fetched from origin server over internet
+            - Downloads both HTTP headers and response body
+            - Headers size: approximate based on header key-value pairs
+            - Body size: decompressed content length
+            - Returns: total of headers + body size
+    
+    Note:
+        Uses decompressed content size (not compressed wire format) for consistency.
+        This provides a stable metric for comparing cache algorithm performance,
+        though it may not reflect exact network bandwidth usage.
+    """
+    
+    
+    # Cache miss: calculate full download size (headers + body)
+    # Use response.content for body size (decompressed, but consistent)
+    body_size = len(response.content)
+    
+    # Approximate header size: sum of all header keys and values
+    # +4 per header for ": " and "\r\n", +50 for status line
+    header_size = sum(len(k) + len(v) + 4 for k, v in response.headers.items()) + 50
+    
+    # Check if this was a cache hit
+    hit = is_hit(response)
+
+    return (header_size + body_size) * int(not hit)
+
 
 def execute_req(url: str, run_id: int):
     """
@@ -67,15 +123,24 @@ def execute_req(url: str, run_id: int):
       
         # Check if request success
         if response.status_code < 300:
-          
+            download_bytes = calculate_download_bytes(response)
             elapsed_time_ms = int(response.elapsed.total_seconds() * 1000)
-
             jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
             # Insert request's data into requests table
             DBAccess.cursor.execute(
-                """INSERT INTO Requests('Time', 'URL', 'Run_ID', 'elapsed_ms') 
-                    VALUES (?,?,?,?)""", [jerusalem_time, url, run_id, elapsed_time_ms])
+                """INSERT INTO Requests(
+                    'Time', 
+                    'URL', 
+                    'Run_ID', 
+                    'elapsed_ms', 
+                    'download_bytes')
+                    VALUES (?,?,?,?,?)""", [
+                        jerusalem_time, 
+                        url, 
+                        run_id, 
+                        elapsed_time_ms, 
+                        download_bytes])
             
             # Need to close connection before continuing because squid needs to update DB
             DBAccess.conn.commit()
