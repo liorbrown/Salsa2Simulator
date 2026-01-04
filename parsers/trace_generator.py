@@ -1,8 +1,13 @@
 from datetime import datetime
 import sqlite3
 from zoneinfo import ZoneInfo
+import sys
+import os
+# Add parent directory to Python path to enable imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from database.db_access import DBAccess
 import random
+import requests
 
 """
 This script generates random trace and its entries in the database. 
@@ -39,7 +44,7 @@ conn = DBAccess.conn
 cursor = DBAccess.cursor
 
 # Retrieve the maximum ID from the Keys table to determine available key range
-cursor.execute("SELECT MAX(id) FROM Keys")
+cursor.execute("SELECT MAX(id) FROM URLs")
 keys_result = cursor.fetchone()[0]
 
 if not keys_result:
@@ -67,30 +72,44 @@ if entries > keys:
 
 # Loop to create the specified number of traces
 for trace_index in range(traces):
+    trace_name = traces_name + str(trace_index + 1)
+    print(f"Starting create {trace_name}")
+
     # Insert a new trace with a unique name
-    cursor.execute("INSERT INTO Traces(Name) VALUES (?)", 
-                   [traces_name + str(trace_index + 1)])
+    cursor.execute("INSERT INTO Traces(Name) VALUES (?)", [trace_name])
     
     # Get the ID of the newly created trace
     cursor.execute("SELECT MAX(id) FROM Traces")
     trace_id = cursor.fetchone()[0]
 
     # Randomly select a starting key ID for the entries
-    start_id = random.randint(1, keys - entries + 1)
+    ids_sample = random.sample(range(1, keys + 1), entries)
+
+    ca_bundle = '/etc/ssl/certs/ca-certificates.crt'
+    inserted = 0
 
     # Loop to insert the entries for the current trace
-    for entry_index in range(entries):
+    while inserted < entries:
         # Randomly select a key ID for the current entry
-        key_id = random.randint(start_id, start_id + entries)
+        url_id = ids_sample[random.randint(0, entries - 1)]
+        cursor.execute("SELECT URL FROM URLs WHERE id=?", [url_id])
+        url = cursor.fetchone()[0]
 
-        # Insert the URL corresponding to the key_id into the Trace_Entry table
-        cursor.execute("""INSERT INTO Trace_Entry(URL, Trace_ID)                     
-                          SELECT URL, ? FROM Keys WHERE id=?""",[trace_id ,key_id])
+        try:
+            response = requests.get(url, timeout=5, 
+                              verify=ca_bundle, allow_redirects=False)
+
+            if response.status_code < 300:
+                # Insert the URL corresponding to the key_id into the Trace_Entry table
+                cursor.execute("""INSERT INTO Trace_Entry(URL, Trace_ID) VALUES (?,?)""",[url, trace_id])
+
+                inserted += 1
+                print(f"Inserted ({inserted}/{entries})")
+        except: pass
 
     # Update the Last_Update field for the current trace with the current time
     jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
     cursor.execute("""UPDATE Traces SET Last_Update=? WHERE id=?""",
                    [jerusalem_time, trace_id])
-
-conn.commit()
-
+    
+    conn.commit()

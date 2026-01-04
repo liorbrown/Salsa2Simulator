@@ -94,24 +94,20 @@ def is_squid_up():
     caches = [(info['ip'],) for name, info in caches_data.items()]
 
     URL = "http://www.google.com"
-    config = MyConfig()
-    ca_bundle = config.get_key('ca_bundle')
-    
+    headers = {'X-Originally-HTTPS': '1'}
 
     try:
-        # Use the standard mapping: HTTP -> local proxy, HTTPS -> Fiddler
         proxy = get_proxies_for_cache()
-        response = requests.get(URL, proxies=proxy, timeout=10, verify=ca_bundle)
+        response = requests.get(URL, headers=headers, proxies=proxy, timeout=10)
 
         # Check if proxy OK
         if response.ok:
             # Runs on all parents to check if they also OK
             for cache in caches:
-                # For parent checks we use the parent's HTTP address for http
-                # and still route HTTPS to the Fiddler proxy.
+                # For parent checks we use the parent's HTTP address
                 proxy = get_proxies_for_cache(http_host=cache[0])
                 try:
-                    response = requests.get(URL, proxies=proxy, timeout=10, verify=ca_bundle)
+                    response = requests.get(URL, headers=headers, proxies=proxy, timeout=10)
 
                     if response.ok:
                         return True

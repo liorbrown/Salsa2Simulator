@@ -14,7 +14,7 @@ from database.db_access import DBAccess
 def get_trace_id():
     # Get from user trace id to show its content
     try:
-        trace_id = int(input("""Select trace ID to show its content, or 0 to go back to main menu: """))
+        trace_id = int(input("Select trace ID to clean it: "))
         
         if trace_id <= 0:
             print("Error: Trace ID must be positive.")
@@ -53,11 +53,13 @@ def delete_url(URL):
         WHERE URL = ?""", [URL])
 
 def clean_trace(URLs):
+    ca_bundle = '/etc/ssl/certs/ca-certificates.crt'
     count = 0
     
     for URL, in URLs:
         try:
-            response = requests.get(URL, timeout=10, allow_redirects=False)
+            response = requests.get(URL, timeout=5, 
+                              verify=ca_bundle, allow_redirects=False)
 
             if response.status_code < 300:
                 continue

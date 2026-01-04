@@ -144,6 +144,11 @@ def _update_run(run_id: int):
 
     DBAccess.conn.commit()
 
+def _remove_url(url): pass
+    # DBAccess.cursor.execute("DELETE FROM Trace_Entry WHERE URL = ?",[url])
+    # print(f"Remove: {url}")
+
+
 def _execute_requests(run_id: int, trace_id: int, limit: int) -> bool:
     """Execute all requests for the trace.
     
@@ -159,16 +164,19 @@ def _execute_requests(run_id: int, trace_id: int, limit: int) -> bool:
         # Get all trace's URLs
         DBAccess.cursor.execute("SELECT URL FROM Trace_Entry WHERE Trace_ID = ?", [trace_id])
         rows = DBAccess.cursor.fetchall()
+        successfully_get = 0
 
         # Run on all trace URLs
-        for row in rows:
+        for (url,) in rows:
             # If requests succeed and there is limit, 
             # decrease limit and check if reach it
-            if execute_req(row[0], run_id) and limit > 0:                
-                limit -= 1
-
-                if not limit:
-                    break
+            if execute_req(url, run_id):
+                successfully_get += 1
+                print(f"Get ({successfully_get}/{limit})")
+                
+                if successfully_get == limit: break
+            else:
+                _remove_url(url)
 
         _update_run(run_id)
         return True

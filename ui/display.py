@@ -121,7 +121,7 @@ def show_runs(run_id = None):
         runs = UIRepository.get_runs_by_id(run_id)
     else:
         limit = get_limit()
-        runs= UIRepository.get_runs(limit)
+        runs = UIRepository.get_runs(limit)
     
     if not runs:
         print("No runs found")
@@ -149,6 +149,7 @@ def show_keys(trace_id):
     # Display the data in a table format using PrettyTable
     table = PrettyTable()
     table.field_names = column_names
+    table.max_width['URL'] = 80  # Set max width for URL column
     
     for row in rows:
         table.add_row(row)
@@ -189,6 +190,7 @@ def show_traces():
 def print_requests(requests: list):
     table = PrettyTable()
     table.field_names = ['id', 'URL', 'Elapsed (ms)', 'Download Bytes']
+    table.max_width['URL'] = 80
     
     for request in requests:
         table.add_row(request)

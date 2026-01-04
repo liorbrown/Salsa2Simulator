@@ -141,7 +141,7 @@ class UIRepository:
                 FROM Trace_Entry
                 WHERE Trace_ID = ?
                 GROUP BY URL
-                ORDER BY COUNT(id) DESC
+                ORDER BY COUNT(id)
             """, [trace_id])
         else:
             DBAccess.cursor.execute("""

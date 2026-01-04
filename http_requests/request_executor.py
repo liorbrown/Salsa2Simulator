@@ -19,23 +19,18 @@ def get_proxies_for_cache(http_host: str | None = None) -> dict:
         http_host: Optional HTTP host to use for HTTP proxy
         
     Returns:
-        dict: Proxies mapping with 'http' and 'https' keys
+        dict: Proxies mapping with 'http' key
     """
     config = MyConfig()
     squid_port = config.get_key('squid_port')
     http_proxy_config = config.get_key('http_proxy')
-    https_proxy_config = config.get_key('https_proxy')
     
     http_proxy = (f'http://{http_host}:{squid_port}' if http_host
                   else (http_proxy_config if http_proxy_config
                         else 'http://127.0.0.1:3128'))
 
-    https_proxy = (https_proxy_config if https_proxy_config
-                   else 'http://192.168.10.1:8888')
-
     return {
         'http': http_proxy,
-        'https': https_proxy,
     }
 
 def is_hit(response):
@@ -100,26 +95,30 @@ def execute_req(url: str, run_id: int):
     Execute request to squid proxy.
     
     Args:
-        url: The URL for the request
+        url: The URL for the request (can be HTTP or HTTPS)
         run_id: The ID of the run associated with the request
     
     Returns:
         bool: Indication for request success
     """
-    # Build proxies mapping from configuration (or sensible defaults)
-    PROXIES = get_proxies_for_cache()
-
     try:
-        config = MyConfig()
-        ca_bundle = config.get_key('ca_bundle')
+        # Convert HTTPS to HTTP and add header to mark it
+        # This allows all requests to go through Squid as plain HTTP
+        # avoiding CONNECT tunnels and enabling connection reuse
+        original_url = url
+        is_https = url.startswith('https://')
+        if is_https:
+            url = url.replace('https://', 'http://', 1)
         
-        # Execute requests through the configured proxies.
-        # For HTTPS we enable verification using the configured CA bundle so Fiddler's root is trusted.
-        # NOTE: requests will ignore the `verify` argument for plain HTTP URLs.
+        headers = {}
+        if is_https:
+            headers['X-Originally-HTTPS'] = '1'
+        
+        # Execute requests through the configured proxies as plain HTTP
         # Disable automatic redirect following to maintain full control over what gets sent
         # and prevent duplicate requests in Squid logs
-        response = requests.get(url, proxies=PROXIES, timeout=10, 
-                              verify=ca_bundle, allow_redirects=False)
+        PROXIES = get_proxies_for_cache()
+        response = requests.get(url, headers=headers, proxies=PROXIES, timeout=10, allow_redirects=False)
       
         # Check if request success
         if response.status_code < 300:
@@ -128,6 +127,7 @@ def execute_req(url: str, run_id: int):
             jerusalem_time = datetime.now(ZoneInfo("Asia/Jerusalem"))
 
             # Insert request's data into requests table
+            # Store the original URL (with https if it was HTTPS)
             DBAccess.cursor.execute(
                 """INSERT INTO Requests(
                     'Time', 
@@ -137,7 +137,7 @@ def execute_req(url: str, run_id: int):
                     'download_bytes')
                     VALUES (?,?,?,?,?)""", [
                         jerusalem_time, 
-                        url, 
+                        original_url, 
                         run_id, 
                         elapsed_time_ms, 
                         download_bytes])
