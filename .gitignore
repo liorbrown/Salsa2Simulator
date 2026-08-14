@@ -94,3 +94,4 @@ config/credentials.py
 # OS files
 Thumbs.db
 .DS_Store
+no_salsa_google.pcap
