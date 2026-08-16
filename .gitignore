@@ -41,6 +41,9 @@ httpSites
 *.temp
 *.bak
 
+# hit/miss comparator generated reports
+hit_miss_reports/
+
 # Backup scripts (contain sensitive IPs, paths, usernames)
 backup_db.sh
 backup_db_onedrive.sh

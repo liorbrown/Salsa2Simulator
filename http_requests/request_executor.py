@@ -39,87 +39,106 @@ def is_hit(response):
     return cache_status and 'hit' in cache_status
 
 
+def calculate_response_size(response) -> int:
+    """Calculate the total size of a response (headers + body), in bytes.
+
+    Args:
+        response: The requests.Response object (downloaded normally, not streamed)
+
+    Returns:
+        int: Approximate total size in bytes of the headers and body combined.
+
+    Note:
+        Uses decompressed content size (not compressed wire format) for consistency.
+        Header size is approximate: sum of header key/value lengths, +4 per header
+        for ": " and "\\r\\n", +50 for the status line.
+    """
+    # Use response.content for body size (decompressed, but consistent)
+    body_size = len(response.content)
+
+    # Approximate header size: sum of all header keys and values
+    # +4 per header for ": " and "\r\n", +50 for status line
+    header_size = sum(len(k) + len(v) + 4 for k, v in response.headers.items()) + 50
+
+    return header_size + body_size
+
+
 def calculate_download_bytes(response) -> int:
     """Calculate the download size for a request for comparison purposes.
-    
+
     This function determines the data size associated with a request based on
     whether it was served from cache or fetched from the origin server. The
     measurement is consistent across all requests, making it suitable for
     comparing different caching algorithms.
-    
+
     Args:
         response: The requests.Response object (downloaded normally, not streamed)
-    
+
     Returns:
         int: Download size in bytes:
             - 0 if cache hit (no internet access, served from local cache)
             - headers + body size if cache miss (full download from origin)
-    
+
     How it works:
         Cache HIT:
             - Detected via 'Cache-Status' header containing 'hit'
             - Content served directly from cache
             - No internet traffic, no bytes downloaded
             - Returns: 0
-        
+
         Cache MISS:
             - Content fetched from origin server over internet
             - Downloads both HTTP headers and response body
             - Headers size: approximate based on header key-value pairs
             - Body size: decompressed content length
             - Returns: total of headers + body size
-    
-    Note:
-        Uses decompressed content size (not compressed wire format) for consistency.
-        This provides a stable metric for comparing cache algorithm performance,
-        though it may not reflect exact network bandwidth usage.
     """
-    
-    
-    # Cache miss: calculate full download size (headers + body)
-    # Use response.content for body size (decompressed, but consistent)
-    body_size = len(response.content)
-    
-    # Approximate header size: sum of all header keys and values
-    # +4 per header for ": " and "\r\n", +50 for status line
-    header_size = sum(len(k) + len(v) + 4 for k, v in response.headers.items()) + 50
-    
-    # Check if this was a cache hit
-    hit = is_hit(response)
+    return calculate_response_size(response) * int(not is_hit(response))
 
-    return (header_size + body_size) * int(not hit)
+
+def send_proxied_request(url: str, timeout: int = 10):
+    """Send a GET request for the given URL through the configured Squid proxy.
+
+    Converts HTTPS URLs to HTTP and marks them with the 'X-Originally-HTTPS'
+    header, so all requests go through Squid as plain HTTP - avoiding CONNECT
+    tunnels and enabling connection reuse.
+
+    Args:
+        url: The URL for the request (can be HTTP or HTTPS)
+        timeout: Request timeout in seconds
+
+    Returns:
+        requests.Response: The response from the proxy
+    """
+    is_https = url.startswith('https://')
+    proxied_url = url.replace('https://', 'http://', 1) if is_https else url
+
+    headers = {}
+    if is_https:
+        headers['X-Originally-HTTPS'] = '1'
+
+    # Disable automatic redirect following to maintain full control over what gets sent
+    # and prevent duplicate requests in Squid logs
+    PROXIES = get_proxies_for_cache()
+    return requests.get(proxied_url, headers=headers, proxies=PROXIES, timeout=timeout, allow_redirects=False)
 
 
 def execute_req(url: str, run_id: int):
     """
     Execute request to squid proxy.
-    
+
     Args:
         url: The URL for the request (can be HTTP or HTTPS)
         run_id: The ID of the run associated with the request
-    
+
     Returns:
         bool: Indication for request success
     """
     try:
-        # Convert HTTPS to HTTP and add header to mark it
-        # This allows all requests to go through Squid as plain HTTP
-        # avoiding CONNECT tunnels and enabling connection reuse
+        # Store the original URL (with https if it was HTTPS) for logging
         original_url = url
-        is_https = url.startswith('https://')
-        if is_https:
-            url = url.replace('https://', 'http://', 1)
-        
-        headers = {}
-        if is_https:
-            headers['X-Originally-HTTPS'] = '1'
-        
-        # Execute requests through the configured proxies as plain HTTP
-        # Disable automatic redirect following to maintain full control over what gets sent
-        # and prevent duplicate requests in Squid logs
-        PROXIES = get_proxies_for_cache()
-        response = requests.get(url, headers=headers, proxies=PROXIES, timeout=10, allow_redirects=False)
-      
+        response = send_proxied_request(url)
+
         # Check if request success
         if response.status_code < 300:
             download_bytes = calculate_download_bytes(response)
