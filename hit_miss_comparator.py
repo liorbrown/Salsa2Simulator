@@ -57,9 +57,9 @@ def _select_trace() -> Optional[int]:
     return trace_id
 
 
-def _print_entry(url: str, hit: bool, elapsed_ms: int, size_kb: float, ratio: float):
+def _print_entry(progress: str, url: str, hit: bool, elapsed_ms: int, size_kb: float, ratio: float):
     status = "HIT" if hit else "MISS"
-    print(f"{url} | {status} | {elapsed_ms} ms | {size_kb:.2f} KB | {ratio:.4f} ms/KB")
+    print(f"{progress} {url} | {status} | {elapsed_ms} ms | {size_kb:.2f} KB | {ratio:.4f} ms/KB")
 
 
 def _build_summary_rows(stats: dict) -> list:
@@ -190,16 +190,19 @@ def run_hit_miss_comparator():
         return
 
     stats = {'HIT': [], 'MISS': []}
+    total = len(urls)
 
-    for url in urls:
+    for done, url in enumerate(urls, start=1):
+        progress = f"[{done}/{total}]"
+
         try:
             response = send_proxied_request(url)
         except Exception as e:
-            print(f"Request {url} error - {e}")
+            print(f"{progress} Request {url} error - {e}")
             continue
 
         if response.status_code >= 300:
-            print(f"Request {url} error - {response.status_code}")
+            print(f"{progress} Request {url} error - {response.status_code}")
             continue
 
         hit = is_hit(response)
@@ -207,13 +210,13 @@ def run_hit_miss_comparator():
         size_bytes = calculate_response_size(response)
 
         if size_bytes == 0:
-            print(f"Request {url} error - empty response, cannot compute ms/KB")
+            print(f"{progress} Request {url} error - empty response, cannot compute ms/KB")
             continue
 
         size_kb = size_bytes / 1024
         ratio = elapsed_ms / size_kb
 
-        _print_entry(url, hit, elapsed_ms, size_kb, ratio)
+        _print_entry(progress, url, hit, elapsed_ms, size_kb, ratio)
         stats['HIT' if hit else 'MISS'].append((elapsed_ms, size_kb, ratio))
 
     print()

@@ -165,14 +165,15 @@ def _execute_requests(run_id: int, trace_id: int, limit: int) -> bool:
         DBAccess.cursor.execute("SELECT URL FROM Trace_Entry WHERE Trace_ID = ?", [trace_id])
         rows = DBAccess.cursor.fetchall()
         successfully_get = 0
+        total = limit if limit else len(rows)
 
         # Run on all trace URLs
         for (url,) in rows:
-            # If requests succeed and there is limit, 
+            # If requests succeed and there is limit,
             # decrease limit and check if reach it
             if execute_req(url, run_id):
                 successfully_get += 1
-                print(f"Get ({successfully_get}/{limit})")
+                print(f"Get ({successfully_get}/{total})")
                 
                 if successfully_get == limit: break
             else:
