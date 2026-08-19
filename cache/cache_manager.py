@@ -1,6 +1,6 @@
 """Cache management logic for Salsa2 Simulator."""
-import os
 import re
+import time
 import requests
 
 DEBUG_MODE = False
@@ -16,13 +16,42 @@ from cache.registry import (
     set_miss_cost,
     set_salsa2_v)
 
+def _ssh_connect(remote_ip):
+    """
+    Open an SSH connection to a remote cache node.
+
+    Authenticates via SSH key (~/.ssh/id_ed25519, or another key/agent
+    discovered by paramiko's default lookup) - no password is transmitted
+    or stored. Raises on failure; callers are responsible for closing the
+    returned client.
+
+    Args:
+        remote_ip: IP address of the remote cache server
+
+    Returns:
+        paramiko.SSHClient: A connected SSH client
+    """
+    import paramiko
+
+    ssh_client = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    config = MyConfig()
+    ssh_client.connect(remote_ip, username=config.get_key('user'))
+
+    return ssh_client
+
+
 def clear_cache(remote_ip):
     """
     Clear all cache data from the given remote cache IP.
-    
+
+    Relies on a scoped NOPASSWD sudoers rule on the remote host for the
+    cache-clearing command.
+
     Args:
         remote_ip: IP address of the remote cache server
-        
+
     Returns:
         bool: True if successful, False otherwise
     """
@@ -35,30 +64,20 @@ def clear_cache(remote_ip):
         log_msg("paramiko is not installed; `clear_cache` requires paramiko to run.")
         return False
 
-    # Create an SSH client instance
-    ssh_client = paramiko.SSHClient()
-
-    # Automatically add the host key if not already known
-    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    # Get password to others caches users
-    password = os.getenv('SQUID_PASS')
+    try:
+        ssh_client = _ssh_connect(remote_ip)
+    except Exception as e:
+        log_msg(f"Error connecting to {remote_ip}: {e}")
+        return False
 
     try:
-        # Connect to the remote machine
+        # Command to delete the Squid cache directory (covered by a NOPASSWD
+        # sudoers rule on the remote host, so no password prompt occurs)
         config = MyConfig()
-        ssh_client.connect(remote_ip, username=config.get_key('user'), password=password)
-
-        # Command to delete the Squid cache directory
         command = f"sudo find {config.get_key('cache_dir')} -type f ! -name 'swap.state' -delete"
 
         # Execute the command to delete the directory
-        stdin, stdout, stderr = ssh_client.exec_command(command, get_pty=True)
-
-        # Provide sudo password for the command (if needed)
-        if password:
-            stdin.write(password + '\n')
-            stdin.flush()
+        stdin, stdout, stderr = ssh_client.exec_command(command)
 
         # Wait for the command to complete
         exit_status = stdout.channel.recv_exit_status()
@@ -79,6 +98,124 @@ def clear_cache(remote_ip):
             ssh_client.close()
         except Exception:
             pass
+
+
+def restart_squid(remote_ip):
+    """
+    Restart the squid service on the given remote cache IP, via systemd.
+
+    A full restart (not a reconfigure/reload) so that squid's in-memory
+    cache is dropped as well as its on-disk data. Relies on a scoped
+    NOPASSWD sudoers rule on the remote host for the restart command.
+
+    Args:
+        remote_ip: IP address of the remote cache server
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        import paramiko
+    except ImportError:
+        log_msg("paramiko is not installed; `restart_squid` requires paramiko to run.")
+        return False
+
+    try:
+        ssh_client = _ssh_connect(remote_ip)
+    except Exception as e:
+        log_msg(f"Error connecting to {remote_ip}: {e}")
+        return False
+
+    try:
+        stdin, stdout, stderr = ssh_client.exec_command("sudo systemctl restart squid")
+        exit_status = stdout.channel.recv_exit_status()
+
+        if not exit_status:
+            return True
+        else:
+            log_msg(f"Error restarting squid on {remote_ip}: {stderr.read().decode()}")
+            return False
+
+    except Exception as e:
+        log_msg(f"Error: {e}")
+        return False
+    finally:
+        try:
+            ssh_client.close()
+        except Exception:
+            pass
+
+def reset_all_caches():
+    """
+    Clear cache data and restart squid on every configured parent cache.
+
+    Processes caches one at a time - clear, then restart, then verify the
+    cache is reachable again - and stops at the first failure rather than
+    continuing on to the next cache, to avoid leaving the hierarchy in a
+    mixed state (e.g. one parent wiped, one untouched) when something is
+    already going wrong.
+
+    Returns:
+        list of (name, ip, status) tuples, one entry per cache attempted.
+        status is one of: 'ok', 'clear failed', 'restart failed',
+        'unreachable after restart'.
+    """
+    from http_requests.request_executor import get_proxies_for_cache
+    from cache.registry import get_all_caches
+
+    caches = list(get_all_caches().items())
+    total = len(caches)
+    results = []
+
+    for done, (name, info) in enumerate(caches, start=1):
+        ip = info['ip']
+        progress = f"[{done}/{total}]"
+
+        print(f"{progress} Clearing cache on {name} ({ip})...")
+        if not clear_cache(ip):
+            print(f"{progress} FAILED to clear cache on {name} ({ip})")
+            results.append((name, ip, 'clear failed'))
+            break
+
+        print(f"{progress} Restarting squid on {name} ({ip})...")
+        if not restart_squid(ip):
+            print(f"{progress} FAILED to restart squid on {name} ({ip})")
+            results.append((name, ip, 'restart failed'))
+            break
+
+        print(f"{progress} Verifying {name} ({ip}) is reachable...")
+        proxy = get_proxies_for_cache(http_host=ip)
+        last_error = None
+        verified = False
+        # Squid takes a moment to accept connections again right after a
+        # restart, so retry briefly instead of failing on the first attempt.
+        for attempt in range(5):
+            if attempt:
+                time.sleep(2)
+            try:
+                response = requests.get(
+                    "http://www.google.com",
+                    headers={'X-Originally-HTTPS': '1'},
+                    proxies=proxy,
+                    timeout=10,
+                )
+                if response.ok:
+                    verified = True
+                    break
+                last_error = f"HTTP {response.status_code}"
+            except Exception as e:
+                last_error = e
+
+        if not verified:
+            print(f"{progress} FAILED to verify {name} ({ip}): {last_error}")
+            results.append((name, ip, 'unreachable after restart'))
+            break
+
+        print(f"{progress} {name} ({ip}) reset OK")
+        results.append((name, ip, 'ok'))
+
+    return results
+
 
 def is_squid_up():
     """
