@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-HIT/MISS comparator - Salsa2 Simulator
+HIT/MISS comparator V2 - Salsa2 Simulator
 
-Estimates how much the cache improves the time efficiency of requests by
-running a chosen trace and comparing, per request, elapsed time (ms) per
-KB of response - grouped by cache HIT/MISS.
+Estimates how much the cache improves the time efficiency of requests.
+Clears every parent cache, runs a chosen trace twice, and compares the
+elapsed time of requests that were a cache MISS on the first (cold) run
+against the elapsed time of those very same requests once they are a
+cache HIT on the second (warm) run.
 """
 import os
 from datetime import datetime
@@ -14,19 +16,47 @@ import xlsxwriter
 from prettytable import PrettyTable
 
 from database.db_access import DBAccess
-from cache.cache_manager import fill_caches, is_squid_up
+from cache.cache_manager import fill_caches, is_squid_up, reset_all_caches
+from cache.registry import get_all_caches
 from ui.repository import UIRepository
-from http_requests.request_executor import (
-    send_proxied_request,
-    calculate_response_size,
-    is_hit,
-)
+from http_requests.request_executor import send_proxied_request, is_hit
 
 REPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hit_miss_reports')
 
 BOLD = '\033[1m'
 YELLOW = '\033[93m'
 RESET = '\033[0m'
+
+
+def _clear_parent_caches() -> bool:
+    """Clear all parent caches so the first run starts cold. Returns True on success."""
+    caches = get_all_caches()
+    if not caches:
+        print("No parent caches found in squid.conf - nothing to reset.")
+        return True
+
+    print("Clearing parent caches before running the trace:")
+    for name, info in caches.items():
+        print(f"  - {name} ({info['ip']})")
+
+    answer = input("Continue? [y/N]: ").strip().lower()
+    if answer != 'y':
+        print("Aborted.")
+        return False
+
+    results = reset_all_caches()
+
+    table = PrettyTable()
+    table.field_names = ['Name', 'IP', 'Status']
+    for name, ip, status in results:
+        table.add_row([name, ip, status])
+    print(table)
+
+    if any(status != 'ok' for _, _, status in results):
+        print("Error: failed to clear one or more parent caches.")
+        return False
+
+    return True
 
 
 def _select_trace() -> Optional[int]:
@@ -40,7 +70,7 @@ def _select_trace() -> Optional[int]:
     table = PrettyTable()
     table.field_names = ['ID', 'Name', 'Keys', 'Last Update']
     for row in traces:
-        table.add_row(row)
+        table.add_row(list(row))
     print(table)
 
     try:
@@ -57,59 +87,115 @@ def _select_trace() -> Optional[int]:
     return trace_id
 
 
-def _print_entry(progress: str, url: str, hit: bool, elapsed_ms: int, size_kb: float, ratio: float):
-    status = "HIT" if hit else "MISS"
-    print(f"{progress} {url} | {status} | {elapsed_ms} ms | {size_kb:.2f} KB | {ratio:.4f} ms/KB")
+def _run_trace_once(urls: list, run_label: str) -> list:
+    """Run every URL in the trace once, in order, printing progress as it goes.
 
+    Returns a list the same length as `urls`: each entry is (hit, elapsed_ms),
+    or None where the request errored - the position is kept so run 1 and
+    run 2 can be paired up by index afterwards.
+    """
+    total = len(urls)
+    results = []
 
-def _build_summary_rows(stats: dict) -> list:
-    """Compute, per HIT/MISS status, count and average elapsed/size/ratio."""
-    rows = []
-    for status in ('HIT', 'MISS'):
-        entries = stats[status]
-        if not entries:
+    for done, url in enumerate(urls, start=1):
+        progress = f"[{run_label} {done}/{total}]"
+
+        try:
+            response = send_proxied_request(url)
+        except Exception as e:
+            print(f"{progress} {url} | error - {e}")
+            results.append(None)
             continue
 
-        count = len(entries)
-        avg_elapsed = sum(e[0] for e in entries) / count
-        avg_size = sum(e[1] for e in entries) / count
-        avg_ratio = sum(e[2] for e in entries) / count
+        if response.status_code >= 300:
+            print(f"{progress} {url} | error - {response.status_code}")
+            results.append(None)
+            continue
 
-        rows.append([status, count, avg_elapsed, avg_size, avg_ratio])
+        hit = is_hit(response)
+        elapsed_ms = int(response.elapsed.total_seconds() * 1000)
+        status = "HIT" if hit else "MISS"
+        print(f"{progress} {url} | {status} | {elapsed_ms} ms")
 
+        results.append((hit, elapsed_ms))
+
+    return results
+
+
+def _match_previously_missed(run1: list, run2: list):
+    """Pair up requests that were a MISS on run 1 with their run 2 outcome.
+
+    Returns (matched_miss, matched_hit, unresolved):
+      - matched_miss: run 1 elapsed ms for requests that were MISS on run 1
+        and came back as a HIT on run 2
+      - matched_hit: run 2 elapsed ms for that same set of requests, in the
+        same order as matched_miss (so index i is the same request in both)
+      - unresolved: count of requests that were MISS on run 1 but did not
+        come back as a HIT on run 2 (still MISS, or one of the two errored)
+    """
+    matched_miss = []
+    matched_hit = []
+    unresolved = 0
+
+    for entry1, entry2 in zip(run1, run2):
+        if entry1 is None or entry1[0]:
+            continue  # not a MISS on run 1, irrelevant to this comparison
+
+        if entry2 is not None and entry2[0]:
+            matched_miss.append(entry1[1])
+            matched_hit.append(entry2[1])
+        else:
+            unresolved += 1
+
+    return matched_miss, matched_hit, unresolved
+
+
+def _build_summary_rows(matched_miss: list, matched_hit: list) -> list:
+    """Average elapsed time per status, over the matched population (requests
+    that were MISS on run 1 and HIT on run 2). Both sides share the same
+    count - it's one datum for the pair, not a per-row value - so it's
+    reported separately rather than repeated on the MISS and HIT rows."""
+    rows = []
+    if matched_miss:
+        rows.append(['MISS', sum(matched_miss) / len(matched_miss)])
+    if matched_hit:
+        rows.append(['HIT', sum(matched_hit) / len(matched_hit)])
     return rows
 
 
-def _print_summary(summary_rows: list):
-    table = PrettyTable()
-    table.field_names = ['Status', 'Count', 'Avg elapsed (ms)', 'Avg size (KB)', 'Avg ms/KB']
+def _print_summary(summary_rows: list, count: int):
+    print(f"Compared {count} request(s) (MISS on run 1 -> HIT on run 2)")
 
-    for status, count, avg_elapsed, avg_size, avg_ratio in summary_rows:
-        table.add_row([status, count, f"{avg_elapsed:.2f}", f"{avg_size:.2f}", f"{avg_ratio:.4f}"])
+    table = PrettyTable()
+    table.field_names = ['Status', 'Avg elapsed (ms)']
+
+    for status, avg_elapsed in summary_rows:
+        table.add_row([status, f"{avg_elapsed:.2f}"])
 
     print(table)
 
 
-def _compute_miss_hit_ratio(summary_rows: list) -> Optional[float]:
-    """How many times slower (ms/KB) a cache MISS is compared to a HIT.
+def _compute_miss_hit_ratio(matched_miss: list, matched_hit: list) -> Optional[float]:
+    """How many times slower a cache MISS is compared to a HIT, over the
+    matched population (same requests, cold vs warm).
 
-    Returns None when either HIT or MISS has no data, or HIT's ratio is 0
+    Returns None when either side has no data, or the HIT total is 0
     (can't divide by it).
     """
-    ratios_by_status = {status: avg_ratio for status, _, _, _, avg_ratio in summary_rows}
-    hit_ratio = ratios_by_status.get('HIT')
-    miss_ratio = ratios_by_status.get('MISS')
-
-    if not hit_ratio or miss_ratio is None:
+    if not matched_miss or not matched_hit:
         return None
 
-    return miss_ratio / hit_ratio
+    hit_total = sum(matched_hit)
+    if not hit_total:
+        return None
+
+    return sum(matched_miss) / hit_total
 
 
 def _format_miss_hit_ratio(miss_hit_ratio: Optional[float]) -> str:
     if miss_hit_ratio is None:
-        return "MISS/HIT ms-per-KB ratio: N/A (need both HIT and MISS data)"
-    return f"MISS is {miss_hit_ratio:.2f}x slower than HIT (ms/KB)"
+        return "MISS/HIT time ratio: N/A (no matched HIT/MISS pair found)"
+    return f"MISS is {miss_hit_ratio:.2f}x slower than HIT"
 
 
 def _print_miss_hit_ratio(miss_hit_ratio: Optional[float]):
@@ -119,9 +205,9 @@ def _print_miss_hit_ratio(miss_hit_ratio: Optional[float]):
 
 
 def _export_to_excel(timestamp: datetime, trace_id: int, summary_rows: list,
-                      miss_hit_ratio: Optional[float]) -> str:
-    """Export the run's timestamp, trace ID, the MISS/HIT ms-per-KB ratio
-    (the headline metric) and the final summary table to an Excel file."""
+                      count: int, miss_hit_ratio: Optional[float]) -> str:
+    """Export the run's timestamp, trace ID, the MISS/HIT time ratio (the
+    headline metric) and the final summary table to an Excel file."""
     os.makedirs(REPORTS_DIR, exist_ok=True)
 
     file_name = f"hit_miss_{trace_id}_{timestamp.strftime('%Y%m%d_%H%M%S')}.xlsx"
@@ -147,22 +233,22 @@ def _export_to_excel(timestamp: datetime, trace_id: int, summary_rows: list,
     sheet.write(1, 0, 'Trace ID', bold)
     sheet.write(1, 1, trace_id)
 
-    sheet.merge_range(3, 0, 4, 4, _format_miss_hit_ratio(miss_hit_ratio), highlight)
+    sheet.write(2, 0, 'Compared requests', bold)
+    sheet.write(2, 1, count)
+
+    sheet.merge_range(3, 0, 4, 1, _format_miss_hit_ratio(miss_hit_ratio), highlight)
     sheet.set_row(3, 30)
     sheet.set_row(4, 30)
 
     header_row = 6
-    headers = ['Status', 'Count', 'Avg elapsed (ms)', 'Avg size (KB)', 'Avg ms/KB']
+    headers = ['Status', 'Avg elapsed (ms)']
     for col, header in enumerate(headers):
         sheet.write(header_row, col, header, bold)
 
-    for row_offset, (status, count, avg_elapsed, avg_size, avg_ratio) in enumerate(summary_rows, start=1):
+    for row_offset, (status, avg_elapsed) in enumerate(summary_rows, start=1):
         row = header_row + row_offset
         sheet.write(row, 0, status)
-        sheet.write(row, 1, count)
-        sheet.write(row, 2, round(avg_elapsed, 2))
-        sheet.write(row, 3, round(avg_size, 2))
-        sheet.write(row, 4, round(avg_ratio, 4))
+        sheet.write(row, 1, round(avg_elapsed, 2))
 
     sheet.autofit()
     workbook.close()
@@ -171,11 +257,15 @@ def _export_to_excel(timestamp: datetime, trace_id: int, summary_rows: list,
 
 
 def run_hit_miss_comparator():
-    """Run a user-chosen trace and, for each request, print elapsed time (ms)
-    per response KB - then print averages grouped by cache HIT/MISS.
+    """Clear all parent caches, run a user-chosen trace twice, and compare
+    the elapsed time of requests that were a MISS on the first (cold) run
+    against the same requests once they are a HIT on the second (warm) run.
     """
     if not is_squid_up():
         print("Error: Squid Down")
+        return
+
+    if not _clear_parent_caches():
         return
 
     timestamp = datetime.now()
@@ -189,44 +279,32 @@ def run_hit_miss_comparator():
         print("Selected trace has no requests.")
         return
 
-    stats = {'HIT': [], 'MISS': []}
-    total = len(urls)
+    print("\n--- Run 1 (cold) ---")
+    run1 = _run_trace_once(urls, "Run 1")
 
-    for done, url in enumerate(urls, start=1):
-        progress = f"[{done}/{total}]"
+    run1_miss_total = sum(e[1] for e in run1 if e is not None and not e[0])
+    print(f"\nSum of MISS elapsed time (run 1): {run1_miss_total} ms")
 
-        try:
-            response = send_proxied_request(url)
-        except Exception as e:
-            print(f"{progress} Request {url} error - {e}")
-            continue
+    print("\n--- Run 2 (warm) ---")
+    run2 = _run_trace_once(urls, "Run 2")
 
-        if response.status_code >= 300:
-            print(f"{progress} Request {url} error - {response.status_code}")
-            continue
+    matched_miss, matched_hit, unresolved = _match_previously_missed(run1, run2)
 
-        hit = is_hit(response)
-        elapsed_ms = int(response.elapsed.total_seconds() * 1000)
-        size_bytes = calculate_response_size(response)
-
-        if size_bytes == 0:
-            print(f"{progress} Request {url} error - empty response, cannot compute ms/KB")
-            continue
-
-        size_kb = size_bytes / 1024
-        ratio = elapsed_ms / size_kb
-
-        _print_entry(progress, url, hit, elapsed_ms, size_kb, ratio)
-        stats['HIT' if hit else 'MISS'].append((elapsed_ms, size_kb, ratio))
+    print(f"\nSum of elapsed time for requests that were MISS in run 1 and are now HIT in run 2: "
+          f"{sum(matched_hit)} ms")
+    if unresolved:
+        print(f"Warning: {unresolved} request(s) were MISS in run 1 but not a HIT in run 2 "
+              f"- excluded from the ratio below.")
 
     print()
-    summary_rows = _build_summary_rows(stats)
-    _print_summary(summary_rows)
+    count = len(matched_miss)
+    summary_rows = _build_summary_rows(matched_miss, matched_hit)
+    _print_summary(summary_rows, count)
 
-    miss_hit_ratio = _compute_miss_hit_ratio(summary_rows)
+    miss_hit_ratio = _compute_miss_hit_ratio(matched_miss, matched_hit)
     _print_miss_hit_ratio(miss_hit_ratio)
 
-    file_path = _export_to_excel(timestamp, trace_id, summary_rows, miss_hit_ratio)
+    file_path = _export_to_excel(timestamp, trace_id, summary_rows, count, miss_hit_ratio)
     print(f"Report exported to {file_path}")
 
 
