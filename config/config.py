@@ -1,5 +1,7 @@
 """Configuration management for Salsa2 Simulator."""
 
+import os
+
 class MyConfig:
     """Manages configuration values from the salsa2.config file."""
     
@@ -17,7 +19,9 @@ class MyConfig:
             return
         
         try:
-            config_file = '/home/lior/Salsa2Simulator/salsa2.config'
+            config_file = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                'salsa2.config')
             self.config_mapping = {}
             
             with open(config_file, 'r') as file:
