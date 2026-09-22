@@ -9,7 +9,13 @@ from config.config import MyConfig
 from database.db_access import DBAccess
 from cache.cache_manager import is_squid_up
 from http_requests.request_executor import execute_req
+from network.traffic_capture import CaptureSession, CaptureError
 from ui.display import show_runs
+
+# How often (in successful requests) to drain captured pcap chunks and
+# backfill Inter-Node Traffic results, instead of doing it per-request
+# (which wouldn't scale to large traces).
+CAPTURE_FLUSH_EVERY = 500
 
 
 def _get_run_details() -> Optional[Tuple[str, int, int]]:
@@ -167,23 +173,40 @@ def _execute_requests(run_id: int, trace_id: int, limit: int) -> bool:
         successfully_get = 0
         total = limit if limit else len(rows)
 
-        # Run on all trace URLs
-        for (url,) in rows:
-            # If requests succeed and there is limit,
-            # decrease limit and check if reach it
-            if execute_req(url, run_id):
-                successfully_get += 1
-                print(f"Get ({successfully_get}/{total})")
-                
-                if successfully_get == limit: break
-            else:
-                _remove_url(url)
+        # One long-lived capture for the whole run (see network/traffic_capture.py
+        # for why: a fresh tcpdump per request wouldn't scale to large traces).
+        # A preflight failure here aborts before any request runs, rather than
+        # silently producing an uninstrumented run.
+        capture_session = CaptureSession()
+        capture_session.start()
+
+        try:
+            # Run on all trace URLs
+            for (url,) in rows:
+                # If requests succeed and there is limit,
+                # decrease limit and check if reach it
+                if execute_req(url, run_id, capture_session=capture_session):
+                    successfully_get += 1
+                    print(f"Get ({successfully_get}/{total})")
+
+                    if successfully_get % CAPTURE_FLUSH_EVERY == 0:
+                        capture_session.drain()
+                        capture_session.flush_resolved()
+
+                    if successfully_get == limit: break
+                else:
+                    _remove_url(url)
+        finally:
+            capture_session.stop()
 
         _update_run(run_id)
         return True
-        
+
     except sqlite3.DatabaseError as e:
         print(f"Failed to execute requests: {e}")
+        return False
+    except CaptureError as e:
+        print(f"Failed to execute requests: Inter-Node Traffic capture error: {e}")
         return False
 
 def _print_results(run_id: int):

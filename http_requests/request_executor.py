@@ -1,11 +1,14 @@
 """Request execution logic for Salsa2 Simulator."""
 import sqlite3
+import time
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 import requests
 
 from config.config import MyConfig
 from database.db_access import DBAccess
+from network.traffic_capture import CaptureSession, CaptureError
 
 
 def get_proxies_for_cache(http_host: str | None = None) -> dict:
@@ -123,13 +126,17 @@ def send_proxied_request(url: str, timeout: int = 10):
     return requests.get(proxied_url, headers=headers, proxies=PROXIES, timeout=timeout, allow_redirects=False)
 
 
-def execute_req(url: str, run_id: int):
+def execute_req(url: str, run_id: int, capture_session: Optional[CaptureSession] = None):
     """
     Execute request to squid proxy.
 
     Args:
         url: The URL for the request (can be HTTP or HTTPS)
         run_id: The ID of the run associated with the request
+        capture_session: Optional CaptureSession used to measure Inter-Node
+            Traffic (bytes exchanged between the proxy and its parents) for
+            this request. Pass None to skip that measurement (parents_bytes/
+            parents_queries stay at their 0 default).
 
     Returns:
         bool: Indication for request success
@@ -137,7 +144,9 @@ def execute_req(url: str, run_id: int):
     try:
         # Store the original URL (with https if it was HTTPS) for logging
         original_url = url
+        t_start = time.time()
         response = send_proxied_request(url)
+        t_end = time.time()
 
         # Check if request success
         if response.status_code < 300:
@@ -149,31 +158,35 @@ def execute_req(url: str, run_id: int):
             # Store the original URL (with https if it was HTTPS)
             DBAccess.cursor.execute(
                 """INSERT INTO Requests(
-                    'Time', 
-                    'URL', 
-                    'Run_ID', 
-                    'elapsed_ms', 
+                    'Time',
+                    'URL',
+                    'Run_ID',
+                    'elapsed_ms',
                     'download_bytes')
                     VALUES (?,?,?,?,?)""", [
-                        jerusalem_time, 
-                        original_url, 
-                        run_id, 
-                        elapsed_time_ms, 
+                        jerusalem_time,
+                        original_url,
+                        run_id,
+                        elapsed_time_ms,
                         download_bytes])
-            
+            request_id = DBAccess.cursor.lastrowid
+
             # Need to close connection before continuing because squid needs to update DB
             DBAccess.conn.commit()
 
+            if capture_session is not None:
+                capture_session.record_window(request_id, original_url, t_start, t_end)
+
             return True
-            
-        else:    
+
+        else:
             print(f"Request {url} error - {response.status_code}")
-            
+
             return False
-        
+
     except Exception as e:
-        print(f"Request {url} error - {e}")             
-        
+        print(f"Request {url} error - {e}")
+
         return False
 
 
@@ -194,5 +207,16 @@ def execute_single_req():
         print("Error: URL must start with 'http://' or 'https://'")
         return
 
-    if execute_req(url, 0):
-        print("Request Successfuly")
+    capture_session = CaptureSession()
+    try:
+        capture_session.start()
+    except CaptureError as e:
+        print(f"Warning: Inter-Node Traffic capture unavailable ({e}); continuing without it.")
+        capture_session = None
+
+    try:
+        if execute_req(url, 0, capture_session=capture_session):
+            print("Request Successfuly")
+    finally:
+        if capture_session is not None:
+            capture_session.stop()

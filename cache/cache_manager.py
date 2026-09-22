@@ -12,9 +12,10 @@ def log_msg(msg : str) -> None:
 from config.config import MyConfig
 from database.db_access import DBAccess
 from cache.registry import (
-    load_caches as load_caches_to_registry, 
+    load_caches as load_caches_to_registry,
     set_miss_cost,
-    set_salsa2_v)
+    set_salsa2_v,
+    set_icp_port)
 
 def _ssh_connect(remote_ip):
     """
@@ -298,6 +299,7 @@ def fill_caches():
     config = MyConfig()
     try:
         caches_data = []
+        icp_port = None
 
         with open(config.get_key('conf_file'), 'r') as f:
             for line in f:
@@ -312,7 +314,7 @@ def fill_caches():
                     except Exception:
                         # ignore invalid value and keep default
                         pass
-                
+
                 elif line.startswith("salsa2"):
                     parts = line.split()
                     if len(parts) < 2:
@@ -324,6 +326,15 @@ def fill_caches():
                         # ignore invalid value and keep default
                         pass
 
+                elif line.startswith("icp_port"):
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue  # Skip malformed lines
+                    try:
+                        icp_port = int(parts[1])
+                    except ValueError:
+                        log_msg(f"Warning: Could not parse icp_port for line: {line}")
+
                 elif line.startswith("cache_peer "):
                     parts = line.split()
                     if len(parts) < 2:
@@ -332,6 +343,13 @@ def fill_caches():
                     ip = parts[1]
                     name = None
                     access_cost : int = None
+                    # 4th token on a "cache_peer <ip> <type> <http_port> <icp_port> ..." line
+                    http_port = None
+                    if len(parts) >= 4:
+                        try:
+                            http_port = int(parts[3])
+                        except ValueError:
+                            log_msg(f"Warning: Could not parse http port for line: {line}")
 
                     # Use regex to find name= and access-cost= as they might not be in fixed positions
                     name_match = re.search(r'name=(\S+)', line)
@@ -351,12 +369,14 @@ def fill_caches():
                         log_msg(f"Info: No access-cost specified in line, using default value of 1: {line}")
 
                     if ip and name and access_cost is not None:
-                        caches_data.append((name, ip, access_cost))
+                        caches_data.append((name, ip, access_cost, http_port))
                     else:
                         log_msg(f"Warning: Missing IP or Name in line: {line}")
 
         # Load all parsed data into the volatile registry
         load_caches_to_registry(caches_data)
+        if icp_port is not None:
+            set_icp_port(icp_port)
         log_msg(f"Successfully loaded {len(caches_data)} caches from {config.get_key('conf_file')}")
 
     except FileNotFoundError:

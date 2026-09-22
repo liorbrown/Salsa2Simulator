@@ -69,35 +69,43 @@ def display_runs_table(runs):
         'Trace',
         'Requests',
         'Avg time (ms)',
-        'Avg size (bytes)']
-    
+        'Avg size (bytes)',
+        'Avg queries',
+        'Avg parent bytes']
+
     # Process each run
-    for (run_id, 
-         name, 
-         start_time, 
-         end_time, 
-         salsa_v, 
-         miss_penalty, 
+    for (run_id,
+         name,
+         start_time,
+         end_time,
+         salsa_v,
+         miss_penalty,
          caches_count,
          costs_count,
          requests_count,
          avg_time,
          avg_size,
+         avg_queries,
+         avg_parent_bytes,
          trace_name) in runs:
-        
+
         avg_time_int = int(avg_time) if avg_time else None
         avg_size_int = int(avg_size) if avg_size else None
-        
-        row = (run_id, 
-               name, 
-               salsa_v, 
-               miss_penalty, 
+        avg_queries_int = int(avg_queries) if avg_queries else None
+        avg_parent_bytes_int = int(avg_parent_bytes) if avg_parent_bytes else None
+
+        row = (run_id,
+               name,
+               salsa_v,
+               miss_penalty,
                caches_count,
                costs_count == 1,
-               trace_name, 
+               trace_name,
                requests_count,
                avg_time_int,
-               avg_size_int)
+               avg_size_int,
+               avg_queries_int,
+               avg_parent_bytes_int)
 
         table.add_row(row)
     
@@ -189,7 +197,7 @@ def show_traces():
 
 def print_requests(requests: list):
     table = PrettyTable()
-    table.field_names = ['id', 'URL', 'Elapsed (ms)', 'Download Bytes']
+    table.field_names = ['id', 'URL', 'Elapsed (ms)', 'Download Bytes', 'Parent Queries', 'Parent Bytes']
     table.max_width['URL'] = 80
     
     for request in requests:

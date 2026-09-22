@@ -34,6 +34,8 @@ class UIRepository:
                 COUNT(*),
                 AVG(REQ.elapsed_ms),
                 AVG(REQ.download_bytes),
+                AVG(REQ.parents_queries),
+                AVG(REQ.parents_bytes),
                 T.Name
             FROM Runs RUN JOIN Traces T ON RUN.Trace_ID = T.id
             JOIN Requests REQ
@@ -71,6 +73,8 @@ class UIRepository:
                 COUNT(*),
                 AVG(REQ.elapsed_ms),
                 AVG(REQ.download_bytes),
+                AVG(REQ.parents_queries),
+                AVG(REQ.parents_bytes),
                 T.Name
             FROM Runs RUN JOIN Traces T ON RUN.Trace_ID = T.id
             JOIN Requests REQ ON REQ.run_id = RUN.id
@@ -102,7 +106,7 @@ class UIRepository:
         """
         
         DBAccess.cursor.execute("""
-            SELECT id, URL, elapsed_ms, download_bytes
+            SELECT id, URL, elapsed_ms, download_bytes, parents_queries, parents_bytes
             FROM Requests
             WHERE run_id = ?
             ORDER BY id ASC""", [run_id])
@@ -163,7 +167,7 @@ class UIRepository:
             List of tuples: (url, elapsed_ms)
         """
         DBAccess.cursor.execute("""
-            SELECT id, URL, elapsed_ms, download_bytes
+            SELECT id, URL, elapsed_ms, download_bytes, parents_queries, parents_bytes
             FROM Requests
             ORDER BY id DESC
             LIMIT ?

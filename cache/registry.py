@@ -8,25 +8,26 @@ from typing import Dict, List, Optional, Tuple
 from config.config import MyConfig
 
 
-def load_caches(caches_data: List[Tuple[str, str, int]]) -> None:
+def load_caches(caches_data: List[Tuple[str, str, int, Optional[int]]]) -> None:
     """
     Load cache configurations into the volatile registry.
-    
+
     This completely replaces the current registry with fresh data.
     Called at program startup by fill_caches() after parsing squid.conf.
-    
+
     Args:
-        caches_data: List of tuples (name, ip, access_cost)
+        caches_data: List of tuples (name, ip, access_cost, http_port)
     """
     config = MyConfig()
     caches_registry = {}
-    
-    for name, ip, access_cost in caches_data:
+
+    for name, ip, access_cost, http_port in caches_data:
         caches_registry[name] = {
             'ip': ip,
-            'access_cost': int(access_cost)
+            'access_cost': int(access_cost),
+            'http_port': int(http_port) if http_port else None
         }
-    
+
     config.set_key('caches', caches_registry)
 
 
@@ -94,3 +95,28 @@ def set_salsa2_v(salsa_v: int) -> None:
     except (TypeError, ValueError):
         # Keep previous value on invalid input
         pass
+
+
+def set_icp_port(port: int) -> None:
+    """Set the configured ICP UDP port (parsed from squid.conf's icp_port directive).
+
+    Args:
+        port: ICP UDP port number
+    """
+    config = MyConfig()
+    try:
+        config.set_key('icp_port', int(port))
+    except (TypeError, ValueError):
+        pass
+
+
+def get_icp_port() -> Optional[int]:
+    """Get the configured ICP UDP port.
+
+    Returns:
+        The ICP port if known, else None.
+    """
+    _ensure_loaded()
+    config = MyConfig()
+    value = config.get_key('icp_port')
+    return int(value) if value else None

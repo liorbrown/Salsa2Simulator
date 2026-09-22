@@ -58,6 +58,9 @@ Salsa2 Simulator employs a modular architecture with clear separation of concern
 - Squid proxy server(s) configured with custom logging
 - SQLite3
 - SSH access to cache servers (for cache clearing operations)
+- `tcpdump`, with capture permissions granted (see step 6 below) - used to measure Inter-Node Traffic
+
+> **The simulator must run on the proxy host itself** (the same machine running the local Squid proxy instance), not on a separate machine that merely has network access to it. `conf_file` (squid.conf) is read as a local file path, and Inter-Node Traffic is measured by capturing packets locally with `tcpdump` - running the simulator elsewhere will fail to find squid.conf and won't see any proxy↔parent traffic to capture.
 
 ### Setup
 
@@ -86,6 +89,12 @@ Salsa2 Simulator employs a modular architecture with clear separation of concern
    ```bash
    export SQUID_PASS='your_squid_password'
    ```
+
+6. **Grant tcpdump capture permissions** (one-time, needed for the Inter-Node Traffic measurement)
+   ```bash
+   sudo setcap cap_net_raw,cap_net_admin+eip $(which tcpdump)
+   ```
+   This lets the simulator run `tcpdump` directly, without root, to passively measure bytes exchanged between the proxy and its parents. Applies system-wide to the `tcpdump` binary; without it, requests still run and are still measured for User Response Time / External Bandwidth Load, but Inter-Node Traffic (`parents_bytes`/`parents_queries`) will be unavailable and a warning is printed instead.
 
 ## ⚙️ Configuration
 
